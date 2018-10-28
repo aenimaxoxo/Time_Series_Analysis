@@ -11,6 +11,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(fpp2)
 library(tidyverse)
+ggplot2::theme_set(theme_gray())
 ```
 
 # 2.1 | ts Objects
@@ -48,6 +49,33 @@ autoplot(a10) +
   ylab("$ Million") + xlab("Year") + 
   theme_gray()
 
-ggplot(mtcars, aes(mpg, wt)) + geom_point() + theme_gray()
+```
+
+
+# 2.3 | Time Series Patterns 
+
+## Trend
+A _trend_ exists when there is a long term increase or decrease in the data. It does not have to be linear. 
+
+## Seasonal 
+A _seasonal_ pattern occurs when a time series is affected by seasonal factors such as the time of the year or day of the week. Seasonality is always of a fixed and known frequency. 
+
+## Cyclic
+
+A _cycle_ occurs when the data exhibit rises and falls that are not of a fixed frequency. These fluctuations are usually due to economic conditions, and are often related to the business cycle. 
+
+
+# 2.4 | Seasonal Plots 
+
+```{r}
+ggseasonplot(a10, year.labels = TRUE, year.labels.left = TRUE) + 
+  ylab("$ million") + 
+  ggtitle("Seasonal Plot: Antidiabetic Drug Sales")
+```
+
+```{r}
+ggseasonplot(a10, polar=TRUE) + 
+  ylab("$ Million") +
+  ggtitle("Polar Seasonal Plot: Antidiabetic Drug Sales")
 ```
 
