@@ -1,0 +1,32 @@
+---
+title: "Forecasting: Principles and Practice Chapter 1"
+author: "Michael Rose"
+date: "October 27, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Suppose we wish to forecast the hourly electricity demand (ED) of a hot region during the summer period.
+
+# Explanatory Model
+
+$ED = f(\mathrm{current temperature, strength of economy, population, time of day, day of week, error})$
+
+# Time Series Model 
+
+$ED_{t+1} = f(ED_t, ED_{t-1}, ED_{t-2}, ..., \mathrm{error})$
+
+# Mixed Model 
+
+$ED_{t+1} = f(ED_t, \mathrm{current temperature, time of day, day of week, error})$
+
+# The basic steps in a forecasting task 
+
+1. Problem Definition
+2. Gathering Information
+3. Preliminary (Exploratory) Analysis 
+4. Choosing and Fitting Models 
+5. Using and Evaluating a forecasting model 
