@@ -1,0 +1,53 @@
+---
+title: "Ch2 | Time Series Graphics"
+author: "Michael Rose"
+date: "October 27, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp2)
+library(tidyverse)
+```
+
+# 2.1 | ts Objects
+
+```{r}
+# create a time series object
+y <- ts(c(123, 39, 78, 52, 110), start = 2012)
+
+# for observations more frequent than yearly, we can use the frequency argument 
+
+# generate some data
+vec_length <- 15*12
+z <- vector(mode = "numeric", length = vec_length)
+
+for (i in seq_along(z)){
+  z[i] <- rnorm(1, mean = 0, sd = 1)
+}
+
+# create a monthly data table as a ts object
+y <- ts(z, start = 2003, frequency = 12)
+```
+
+# 2.2 | Time Plots 
+
+```{r}
+
+# plot economy class passengers in melbourne-sydney flights
+autoplot(melsyd[, "Economy.Class"]) + 
+  ggtitle("Economy Class Passengers: Melbourne-Sydney") + 
+  xlab("Year") + ylab("Thousands")
+
+# antidiabetic drug sales 
+autoplot(a10) + 
+  ggtitle("Antidiabetic Drug Sales") + 
+  ylab("$ Million") + xlab("Year") + 
+  theme_gray()
+
+ggplot(mtcars, aes(mpg, wt)) + geom_point() + theme_gray()
+```
+
