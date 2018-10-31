@@ -79,3 +79,71 @@ ggseasonplot(a10, polar=TRUE) +
   ggtitle("Polar Seasonal Plot: Antidiabetic Drug Sales")
 ```
 
+# 2.5 | Seasonal Subseries Plots 
+
+An alternative plot that emphasizes the seasonal patterns is where the data for each season are collected together in seperate mini time plots 
+
+```{r}
+ggsubseriesplot(a10) + 
+  ylab("$ Million") + 
+  ggtitle("Seasonal Subseries Plot: Antidiabetic Drug Sales")
+```
+
+The horizontal lines indicate the means for each month. This plot allows the underlying seasonal pattern to be seen clearly, and shows the change in seasonality over time. 
+
+# 2.6 | Scatterplots 
+
+The plots below show two time serieS: 
+
+The half hourly electricity demand (in gigawatts) and temperature(in degrees celsius) for 2014 in victoria, australia. 
+
+```{r}
+autoplot(elecdemand[, c("Demand", "Temperature")], facets = TRUE) + 
+  xlab("Year: 2014") + ylab("") + 
+  ggtitle("Half-Hourly Electricity Demand: Victoria, Australia")
+```
+
+We can study the relationship between demand and temperature by plotting the series against each other
+
+```{r}
+qplot(Temperature, Demand, data = as.data.frame(elecdemand)) + 
+  ylab("Demand (GW)") + xlab("Temperature (Celsius)")
+```
+
+We can see from the scatterplot above that there is high demand for electricity when temperatures are high (likely due to air conditioning). There is also a slight heating effect for very low temperatures. 
+
+## Correlation 
+
+It is common to compute correlation coefficients to measure the strength of the relationshop between two variables. The correlation between some variables $x, y$ is given by 
+
+\begin{center}
+$r = \frac{ \sum(x_t - \bar{x})) (y_t - \bar{y})}{\sqrt(\sum (x_t - \bar{x})^2)(\sqrt(\sum (y_t - \bar{y}^2))}$. 
+\end{center}
+
+The correlation coefficient $r \in [-1, 1]$ with negative values representing a negative relationship and positive values showing a positive relationship. An important thing to note is that $r$ only measures the strength of the _linear_ coefficient.
+
+## Scatterplot Matrices 
+
+When there are several potential predictor variables, it is useful to plot each variable against each other variable. 
+
+Below are 5 time series showing quarterly visitor numbers for five regions of New South Wales, Australia
+
+```{r}
+autoplot(visnights[, 1:5], facets = TRUE) + 
+  ylab("Number of visitor nights each quarter(millions)")
+```
+
+To see the relationships between these five time series, we can plot each time series against the others. 
+
+We can put these in a scatterplot matrix: 
+
+```{r}
+GGally::ggpairs(as.data.frame(visnights[, 1:5]))
+```
+
+For each panel, the variable on the vertical axis is given by the variable name in that row, and the variable on the horizontal axis is given by the variable name in that column. 
+
+This matrix allows us to see all the relationships between pairs of variables easily. In this example, the second column of the plot shows us that there is a positive correlation between visitors to the NSW north coast and the NSW south coast. There is also one unusually high quarter for the NSW Metropolitan region, corresponding to the 2000 Sydney Olympics. 
+
+# 2.7 | Lag Plots 
+
