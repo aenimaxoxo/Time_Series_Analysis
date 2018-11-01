@@ -147,3 +147,79 @@ This matrix allows us to see all the relationships between pairs of variables ea
 
 # 2.7 | Lag Plots 
 
+The figure below shows scatterplots of quarterly Australian beer production, where the horizontal axis shows lagged values of the time series. Each plot shows $y_t$ plotted against $y_{t-k}$ for different values of $k$. 
+
+```{r}
+beer2 <- window(ausbeer, start = 1992)
+gglagplot(beer2)
+```
+
+Here the colors indicate the quarter of the variable on the veritcal axis. The lines connect points in chronological order. We cam see that the lags are strongly linear for lag 4 and 8, representting strong seasonality in the data. The negative relationship in lags 2 and 6 show because peaks in Q4 and plotted with troughs in Q2. 
+
+# 2.8 | Autocorrelation 
+
+**Autocorrelation**: or serial correlation, is the correlation of a signial with a delayed copy of itself as a function of delay. Informally, it is the similarity between observations as a function of the time lag between them. The analysis of autocorrelation is a tool for finding repeating patterns, generally obscured by noise. 
+
+Just as correlation measures the extent of a linear relationship between 2 variables, autocorrelation measures the linear relationship between _lagged_ values of a time series. 
+
+There are several autocorrelation coefficients, corresponding to each panel in the lag plot. For example, $r_1$ measures the relationship between $y_t$ and $y_{t-1}$, $r_2$ $y_t, y_{t-2}$, etc. 
+
+$r_k$ can be written as 
+
+\begin{center}
+$r_k = \frac{\sum_{t = k+1}^T (y_t - \bar{y})(y_{t-k} - \bar{y})}{\sum_{t=1}^T (y_t - \bar{y})^2}$
+\end{center}
+
+We can plot the autocorrelation coefficients to show the _autocorrelation function_ or ACF. This plot is also known as a _correlogram_. 
+
+```{r}
+ggAcf(beer2)
+```
+
+In this graph we see that $r_4$ is the highest coefficient. This is due to the seasonal pattern in the data. The peaks tend to be 4 quarters apart and the troughs tend to be 4 quarters apart. 
+
+Similarly, $r_2$ is the most negative, as the peaks tend to come 2 quarters before troughs. 
+
+The dashed blue lines indicate whether the correlations are significantly different from 0. 
+
+## Trend and Seasonality in ACF Plots
+
+When there is a trend in data, the autocorrelations for small lags tend to be large and positive because observations nearby in time are also nearby in size. As a result, the ACF is trended time series tend to have positive values that slowly decrease as the lags increase.
+
+With seasonal data, the autocorrelations will be larger for seasonal lags (at multiples of the seasonal frequency) than for other lags. 
+
+When data is both trended and seasonal, we see a combination. 
+
+In the plot below we see the Australian electricity demand series, showing both trend and seasonality 
+
+```{r}
+aelec <- window(elec, start = 1980)
+autoplot(aelec) + xlab("Year") + ylab("GWh")
+```
+
+
+```{r}
+ggAcf(aelec, lag = 48)
+```
+
+The slow decrease in the ACF as the lags increase is due to the trend, while the "scalloped" shape is due to the seasonality. 
+
+# 2.9 | White Noise 
+
+Time series with no autocorrelation are considered **white noise**. 
+
+Example: 
+
+```{r}
+set.seed(30)
+y <- ts(rnorm(50))
+autoplot(y) + ggtitle("White Noise")
+```
+
+```{r}
+ggAcf(y)
+```
+
+We can see if a series is white noise by checking that 95% of the spikes in the ACF lie within +- 2 / $sqrt(T)$ where $T$ is the length of the time series. In this example, $T = 50$, so the bounds are $+- 2 /\sqrt(50) = +- 0.28$. All of the coefficients lie within these limits, confirming the data is white noise. 
+
+
