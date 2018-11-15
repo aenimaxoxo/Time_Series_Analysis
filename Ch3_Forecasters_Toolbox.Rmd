@@ -120,3 +120,104 @@ These methods are generally considered benchmarks, but they may be the most effe
 
 # 3.2 | Transformations and Adjustments 
 
+In this section we deal with 4 kinds of adjustments: 
+
+* Calendar Adjustments 
+* Population Adjustments 
+* Inflation Adjustments 
+* Mathematical Transformations 
+
+We want to simplify the patterns in the historical data by removing known sources of variation or by making the pattern more consistent across the whole data set. 
+
+### Calendar Adjustments 
+
+Some of the variation in seasonal data may be due to simple calendar effects. In these cases, it is easy to remove the variation before fitting a forecasting model. 
+
+For example, if we are studying monthly milk production on a farm, there will be variation between the months simply because the different number of days in each month (in addition to the seasonal variation across the year). 
+
+```{r}
+# monthdays() will compute the number of days in each month or quarter
+dframe <- cbind(Monthly = milk, DailyAverage = milk / monthdays(milk)) 
+
+autoplot(dframe, facet=TRUE) + 
+  xlab("Years") + ylab("Pounds") + 
+  ggtitle("Milk Production per Cow")
+```
+
+By looking at the average daily production instead of the average monthly production, we effectively remove the variation due to different month lengths. 
+
+### Population Adjustments 
+
+Any data affected by population changes can be adjusted to give per-capita data. We can consider the data per person, or thousand people, or million people. 
+
+### Inflation Adjustments 
+
+Data which are affected by the value of money are continuously changed by the value of that currency. For example, $200,000 today is worth less than the same amount in the year 2000. Thus we can standardize our monetary measurements in year X dollars. 
+
+To make these adjustments, a price index is used. If $z_t$ denotes the price index and $y_t$ denotes the original house price in year $t$, then $x_t = \frac{y_t}{z_t} * z_{2000}$ gives the adjusted price at year 2000 dollar values. 
+
+### Mathematical Transformations
+
+If the data shows variation that increases or decreases with the level of the series, then a transformation can be useful. A log transform is often useful. 
+
+Other transforms include square roots and cube roots. These are called **power transformations** and can be expressed in the form $w_t = y_t^p$. 
+
+Another useful family of transformations that includes both logs and power transformations is the family of **Box-Cox Transformations**. 
+
+$w_t = \log(y_t)$ if $\lambda = 0$. $w_t = \frac{y_t^{\lambda} - 1}{\lambda}$ otherwise. 
+
+A good value of $\lambda$ is one which makes the size of the seasonal variation about the same across the whole series. 
+
+```{r}
+# the BoxCox.lambda() function will choose a value of lambda for you
+(lambda <- BoxCox.lambda(elec))
+
+# plot 
+autoplot(BoxCox(elec, lambda))
+```
+
+Having chosen a transformation, we need to forecast the transformed data. Then, we need to reverse the transformation (or back-transform) to obtain forecasts on the original scale. 
+
+The Reverse-BoxCox transformation is given by 
+
+$y_t = \exp(w_t)$ if $\lambda = 0$
+$y_t = (\lambda w_t + 1)^{\frac{1}{\lambda}}$ otherwise. 
+
+### Features of Power Transformations 
+
+* If some $y_t \leq 0$, no power transformation is possible unless all observations are adjusted by adding a constant to all values. 
+* Choose a simple value for $\lambda$. It makes explanations easier. 
+* The forecasting results are relatively insensitive to the value of $\lambda$
+* Often no transformation is needed 
+* Transformations sometimes make little difference to the forecasts but have a large effect on prediction intervals
+
+### Bias Adjustments 
+
+One issue with using mathematical transformations like BoxCox is that the back-transformed point forecast will not be the mean, but instead the median, of the forecast distribution. 
+
+If we need the mean, for example if we wish to add up sales forecasts from various regions to form a forecast for the whole country, the back-transformed mean is given by: 
+
+$y_t = \exp(w_t) [1 + \frac{\sigma_h^2}{2}]$ if $\lambda = 0$
+$y_t = (\lambda w_t + 1)^{\frac{1}{\lambda}}[1 + \frac{\sigma_h^2(1 - \lambda)}{2(\lambda w_t + 1)^2}]$ otherwise. 
+
+Where $\sigma_h^2$ is the h-step forecast variance. The larger the forecast variance, the bigger the difference between mean and the median. 
+
+The difference between the back-transform without the adjustment and the back transform with the adjustment is called the **bias**. When we use the mean rather than the median, we say our point forecasts have been **bias-adjusted**
+
+To consider how much the bias adjustment changes things: 
+
+```{r}
+fc <- rwf(eggs, drift = TRUE, lambda = 0, h = 50, level = 80)
+fc2 <- rwf(eggs, drift = TRUE, lambda = 0, h = 50, level = 80, biasadj = TRUE)
+
+autoplot(eggs) + 
+  autolayer(fc, series = "Simple back-transformation") + 
+  autolayer(fc2, series = "Bias Adjusted", PI = FALSE) + 
+  guides(color = guide_legend(title = "Forecast"))
+```
+
+The blue in the figure above shows the forecast medians while the red line shows the forecast means. Notice how the skewed forecast distribution pulls up the point forecast when we use the bias adjustment. 
+
+Bias adjustment is not done by default in the forecast package. We must use the arg biasadj=TRUE when we select our boxcox transformation parameter. 
+
+# 3.3 | Residual Diagnostics 
