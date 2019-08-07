@@ -326,3 +326,7 @@ All of these methods are packaged into one R function checkresiduals() which wil
 checkresiduals(naive(goog200))
 ```
 
+
+# 3.4 | Evaluating Forecast Accuracy 
+
+

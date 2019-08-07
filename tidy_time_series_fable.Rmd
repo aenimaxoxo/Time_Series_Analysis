@@ -1,0 +1,248 @@
+---
+title: "Tidy Time Series Forecasting with Fable"
+author: "Michael Rose"
+output: 
+  html_document:
+     highlight: zenburn
+     theme: lumen
+     df_print: paged
+     fig_align: center
+     code_folding: hide
+---
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, out.width = "100%")
+ 
+# programming 
+library(tsibble)
+library(tsibbledata)
+library(fable)
+library(feasts)
+library(fasster)
+library(ggplot2)
+library(magrittr)
+```
+# {.tabset}
+
+## Resources
+
+### Packages 
+
+- tsibble (dplyr)
+- tsibbledata
+- fable (models)
+- hts (hierarchical time series)
+- tbats (trigonometric seasonality, boxcox transformation, arma errors, trend and seasonal components)
+- prophet 
+- mists (missing values)
+- feasts (feature engineering)
+- fasster 
+- sweep (broom)
+- sugrrants (ggplot2)
+
+### Books 
+
+- Forecasting: Principles and Practice 
+- Tidy Forecasting Principles 
+- Hamilton Time Series Analysis 
+
+## tsibble 
+
+## Forecasting
+
+### 1 | Fable 
+
+The fable package is a tidy renovation of the forecast package. Much like tsibble implements tidy time series data, the fable package applies tidyverse principles to time series modeling. 
+
+### 2 | Tidy Time Series
+
+The tsibble package provides a tidy data structure for time series. It is sufficiently flexible to support the future of time series modeling tools (such as tbats, fasster, and prophet). The tsibble object also provides valuable structural information (index and key).
+
+**index**
+
+This can be used to identify the frequency and regularity of the observations. By storing a standard datetime object within the dataset, it makes irregular time series modeling possible. It also allows a more flexible specification of seasonal frequency that is easier to specify for the end user. 
+
+**key**
+
+Keys are used within tsibble to uniquely identify related time series in a tidy structure. They are also useful for identifying relational structures between each time series. 
+
+This is especially useful for forecast reconciliation, where a hierarchical or grouped structure is imposed on a set of forecasts to impost relational constraints (typically aggregation).
+
+Keys within tsibble can either be nested (hierarchical) or crossed (grouped), and can be directly used to reconcile forecasts. This structure also has purpose for univariate models, as it allows batch forecasting to be applied across many time series. 
+
+### 3 | Model Basics 
+
+The model function expects to accept a tsibble and a model formula and return a fitted model stored as a mable. 
+
+The model function may look like this:
+
+```{r, eval = FALSE}
+log(y) ~ trend() + season(period = "day") + x
+```
+
+### 4 | Accessing Model Elements 
+
+The print and summary methods are standard displays for fitted models. The print method typically displays a limited amount of key information, such as the model that was fit and the coefficients. 
+
+As fable naturally supports batch / multiple forecasting, the print method is standardized for any number of models. 
+
+```{r}
+# load data from tsibbledata
+uk_lung <- as_tsibble(cbind(mdeaths, fdeaths), pivot_longer = FALSE)
+
+uk_lung %>% autoplot()
+
+# fit model (Exponential smoothing state space model)
+ets_fit <- uk_lung %>%
+    model(ETS(mdeaths))
+```
+
+The summary method can then be used to reveal more information about this model, such as fitted parameters and goodness of fit 
+
+```{r}
+ets_fit %>%
+    summary
+
+ets_fit %>%
+    fitted
+
+ets_fit %>%
+    residuals
+```
+
+**Broom Functionality**
+
+Common features from broom can be used as well. 
+
+```{r}
+ets_fit %>%
+    augment
+
+ets_fit %>%
+    tidy
+
+ets_fit %>%
+    glance
+```
+
+**Components**
+
+In many cases, a model can be used to extract features or components from data in a similar way to decomposition methods. We use the components verb to extract a tsibble of data features that have been extracted via modelling or decomposition. 
+
+State space models such as ETS are well suited to this functional as the states often represent features of interest. 
+
+```{r}
+uk_lung %>%
+    model(ETS(mdeaths)) %>%
+    components -> components_ts
+
+components_ts %>% autoplot()
+```
+
+It may also be worth storing how these components can be used to produce the response, which can be used for decomposition modeling.
+
+### 5 | Model Methods 
+
+#### 5.1 | Interpolation
+
+Models that can be estimated in the presence of missing values can often be used to interpolate the unknown values. Often these can be taken form the models fitted values, and some models may support more sophisticated interpolation methods. 
+
+The tsibbledata olympic running set contains olympic mens 400m track final winning times. The times for the 1916, 1940, and 1944 olympics are missing due to the world wars.
+
+```{r}
+olympic_running
+```
+
+<!-- Add plots! -->
+
+We could then interpolate these missing values using the fitted values from a linear model with trend. 
+
+```{r}
+olympic_running %>%
+    model(lm = TSLM(Time ~ trend())) %>%
+    interpolate(olympic_running)
+```
+
+#### 5.2 | Re-estimation
+
+**refit**
+
+Refitting a model allows the same model to be applied to a new dataset. The refitted model should maintain the same structure and coefficients of the original model, with fitted information updated to reflect the model's behaviour on the new dataset. It should also be possible to allow re-estimation of parameters using the reestimate argument, which keeps the selected model terms but updates the model coefficients / parameters.
+
+```{r}
+# for the ETS model for mdeaths above
+ets_fit <- as_tsibble(mdeaths) %>%
+    model(ETS(value))
+
+# use the same model to estimate fdeaths
+refit(ets_fit, as_tsibble(fdeaths))
+```
+
+**Stream**
+
+Streaming data into a model allows a model to be extended to accomodate new, future data. Like refit, stream should allow re-estimation of the model parameters. As this can be a costly operation for some models, in most cases updating the parameters should not occur. However, it is reccommended that the model parameters are updated on a regular basis.
+
+Suppose we are estimating electricity demand, and after fitting a model to the existing data, a new set of data from the next month becomes available.
+
+```{r}
+tsibbledata::vic_elec %>%
+    autoplot()
+```
+
+A minimal model for the electricity demand above can be estimated using fasster (Forecasting with Additive Switching of Seasonality, Trend, and Exogenous Regressors). This model is designed to capture patterns of multiple seasonality in a state space framework by using state switching. 
+
+```{r}
+fit_fasster <- vic_elec %>%
+    model(fasster = fasster(Demand ~ Holiday %S% (poly(1) + trig(10))))
+```
+
+To extend these fitted values to include December's electricity data, we can use the stream functionality
+
+```{r, eval = FALSE}
+fit_fasster <- fit_fasster %>%
+    stream("DECEMBER DATA HERE")
+```
+
+#### 5.3 | Simulation 
+
+Like the tidymodels opinion toward predict, generate should not default to an archived version of the training set. This allows models to be used for simulating new data sets, which is especially relevant for time series as often future paths beyond the training set are simulated. 
+
+The generate method for a fable model should accept these arguments:
+
+- object : the model itself 
+- new_data : the data used for simulation 
+
+The new_data dataset extends existing stats::simulate functionality by allowing the simulation to accept a new time index for simulating beyond the sample (.idx) and allows the simulation to work with a new set of exogenous regressors (say x1 and x2). 
+
+For the end user, creating simulations would look like this 
+
+```{r}
+uk_lung %>%
+    model(lm = TSLM(mdeaths ~ fourier("year", K = 4) + fdeaths)) %>%
+    generate(uk_lung, times = 5)
+```
+
+Or to generate data beyond the sample 
+
+```{r, eval = FALSE}
+uk_lung %>%
+    filter(index <= 1978) %>%
+    model(lm = TSLM(mdeaths ~ fourier("year", K = 4) + fdeaths)) %>%
+    generate(uk_lung %>%
+             filter(index > 1978),
+             times = 5) 
+```
+
+### 5.4 | Visualization
+
+Different plots are appropriate for visualizing each type of model. For example, a plot of an ARIMA model may show the AR and / or MA roots from the model on a unit circle. A linear model has several common plots, including plots showing Residuals vs Fitted values, normality via a QQ plot, and measures of leverage. These model plots are further extended by the visreg package to show the effects of terms on the models response. 
+
+## tsibbledata 
+
+## fable 
+
+## feasts 
+
+## fasster 
+
+## sweep 
