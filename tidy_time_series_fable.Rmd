@@ -13,13 +13,13 @@ output:
 ```{r, echo = FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, out.width = "100%")
  
-# programming 
+# programming
+library(tidyverse)
 library(tsibble)
 library(tsibbledata)
 library(fable)
 library(feasts)
 library(fasster)
-library(ggplot2)
 library(magrittr)
 ```
 # {.tabset}
@@ -233,9 +233,97 @@ uk_lung %>%
              times = 5) 
 ```
 
-### 5.4 | Visualization
+#### 5.4 | Visualization
 
 Different plots are appropriate for visualizing each type of model. For example, a plot of an ARIMA model may show the AR and / or MA roots from the model on a unit circle. A linear model has several common plots, including plots showing Residuals vs Fitted values, normality via a QQ plot, and measures of leverage. These model plots are further extended by the visreg package to show the effects of terms on the models response. 
+
+### 6 | Advanced Modeling 
+
+#### 6.1 | Batch 
+
+Estimating multiple models is a key feature of fable. Most time series can be naturally disaggregated using a series of factors known as keys. These are used to uniquely identify separate time series, each of which can be modeled separately.
+
+```{r}
+uk_lung %>%
+    gather("sex", "deaths") %>%
+    model(ETS(deaths))
+```
+
+[Tidy Forecasting with the Fable Package Vignette](https://github.com/tidyverts/fable/wiki/Tidy-forecasting-with-the-fable-package)
+
+None of the code in this vignette works, and I don't currently have the expertise to fix it.
+
+[Handle Implcit Missingness with tsibble](https://cran.r-project.org/web/packages/tsibble/vignettes/implicit-na.html)
+
+A handful of tools are provided to understand and tackle missing values in: 
+
+1. has_gaps() : checks if there exists implicit missingness 
+2. scan_gaps() : reports all implicit missing entries 
+3. count_gaps() : summarizes the time ranges that are absent from the data 
+4. fill_gaps() : turns them into explicit ones, along with imputing by values or functions 
+
+These functions have a common argument, .full = FALSE. If False, it looks into the time period for each key, otherwise the full length time span. 
+
+The pedestrian data contains hourly tallies of pedestrians at four counting sensors in 2015 and 2016 in Melbourne.
+
+```{r}
+pedestrian
+
+# check gaps in time for sensors
+has_gaps(pedestrian, .full = TRUE)
+
+# give a summarized table about the missing timegap alongside number of missing observations
+(c_gaps <- count_gaps(pedestrian, .fill = TRUE))
+
+# view gaps using ggplot
+library(ggplot2)
+
+c_gaps %>% 
+    ggplot(aes(x = Sensor, color = Sensor)) +
+    geom_linerange(aes(ymin = .from, ymax = .to)) +
+    geom_point(aes(y = .from)) +
+    geom_point(aes(y = .to)) +
+    coord_flip() +
+    theme(legend.position = "bottom")
+```
+
+The function fill_gaps takes care of filling the key and index and leaves other variables filled by the default NA. 
+
+```{r}
+(ped_full <- pedestrian %>%
+    fill_gaps(.full = TRUE))
+```
+
+Other than NA, a set of name value pairs goes along with fill_gaps, by imputing values or functions as desired
+
+```{r}
+pedestrian %>%
+    fill_gaps(Count = 0L, .full = TRUE)
+
+pedestrian %>%
+    group_by_key() %>%
+    fill_gaps(Count = mean(Count), .full = TRUE)
+```
+
+#### 6.2 | Decomposition
+
+Objects which support a components method can then have their components modeled separately. The working name for this functionality is model_components. 
+
+The user should be able to specify how each of the components are modeled, and the components method should define how each component is combined. 
+
+```{r}
+library(feasts)
+
+(md_decomp <- uk_lung %>%
+    STL(mdeaths ~ season(window = 12)))
+
+md_decomp %>% autoplot()
+```
+
+### 7, 8, 9
+
+These sections are not done in the book yet.
+
 
 ## tsibbledata 
 
@@ -246,3 +334,4 @@ Different plots are appropriate for visualizing each type of model. For example,
 ## fasster 
 
 ## sweep 
+
