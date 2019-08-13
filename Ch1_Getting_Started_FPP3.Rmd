@@ -1,0 +1,307 @@
+---
+title: "FPP V3 : Getting Started"
+author: "Michael Rose"
+output: 
+  html_document:
+     highlight: zenburn
+     theme: lumen
+     df_print: paged
+     fig_align: center
+     code_folding: hide
+---
+
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, out.width = "100%")
+library(tidyverse)
+library(lubridate)
+library(tsibble)
+library(tsibbledata)
+library(fable)
+library(feasts)
+```
+
+# 1 | Getting Started {.tabset}
+
+The predictability of an event or a quantity depends on several factors, including: 
+
+1. How well we understand the factors that contribute to it 
+2. How much data is available 
+3. Whether the forecasts can affect the thing we are trying to forecast
+
+Explanatory Model:
+
+$ED = f(current_temp, strength_of_economy, population, time_of_day, day_of_week, error)$
+
+Time Series Model:
+
+$ED_{t+1} = f(ED_t, ED_{t-1}, ED_{t-2}, ..., error)$
+
+Mixed Model (aka Dynamic Regression Models, Panel Data Models, Longitudinal Models, Transfer Function Models, and Linear System models): 
+
+$ED_{t+1} = f(ED_t, current_temp, time_of_day, day_of_week, error)$
+
+The basic steps in a forecasting task:
+
+1. Problem Definition 
+2. Gathering Information 
+3. Preliminary Analysis 
+4. Choosing and Fitting Models 
+5. Using and Evaluating a Forecasting Model
+
+## 1.8 | Exercises 
+
+1. For cases 3 and 4 in section 1.5, list the possible predictor variables that might be useful assuming that the relevant data are available. 
+
+**Case 3**
+
+Possible predictors: 
+    - lease limits / mpy 
+    - make of car 
+    - year of car 
+    - basically everything in mtcars 
+    - percentage of miles used / year 
+    - KBB value of car new / used
+
+**Case 4**
+
+Possible predictors:
+    - Number of flights out of / into airport
+    - tourism rates in area 
+    - rate of local hotels on average 
+    - population of area in / outbound
+
+2. For case 3 in section 1.5, describe the 5 steps of forecasting in the context of this project. 
+
+
+1. Problem Definition 
+
+Given n cars bought each year, what is the expected resale value in 3 years time after m miles driven for each car? 
+
+2. Gathering Information 
+
+Find the predictors mentioned above
+
+3. Preliminary Analysis 
+
+What would a good baseline be? What is the accuracy of just taking the previous years? Is there a slope in the trend?
+
+4. Choosing and Fitting Models 
+
+Choose a series of time series models to fit and cross validate. 
+
+5. Using and Evaluating a Forecasting Model
+
+Choose the best validation set and use on test set. 
+
+# 2 | Time Series Graphics 
+
+Suppose we have annual observations for the last few years. We can turn this into a tsibble
+
+```{r}
+(y <- tsibble(Year = 2015:2019, Observation = c(123, 39, 78, 52, 110), index = Year))
+```
+
+For observations that are more frequent than once per year, we need to use a time class function on the index.
+
+Suppose we have a monthly dataset, z
+
+```{r}
+(z <- tibble(Month = c("2019 Jan", "2019 Feb", "2019 Mar", "2019 Apr", "2019 May"), Observation = c(50, 23, 34, 30, 25)))
+```
+
+This can be converted to a tsibble object using the yearmonth() function
+
+```{r}
+z %>%
+    mutate(Month = yearmonth(Month)) %>%
+    as_tsibble(index = Month)
+```
+
+Other time class functions can be used depending on the frequency of observations:
+
+
+| Frequency | Function         |
+| Annual    | start:end        |
+| Quarterly | yearquarter()    |
+| Monthly   | yearmonth()      |
+| Weekly    | yearweek()       |
+| Daily     | as_date(), ymd() |
+| Sub-daily | as_datetime()    |
+
+### The Key Variables 
+
+A tsibble also allows multiple time series to be stored in a single object. 
+
+```{r}
+olympic_running
+```
+
+In the dataframe above we have 14 different time series that are uniquely identified by the keys (length and sex). 
+
+### Working with tsibble objects 
+
+Suppose we have the PBS data which contains sales on pharmaceutical products in Australia. This contains monthly data on Medicare Australia prescriptions from July 1991 to June 2008. These are classified according to various concession types, and Anatomical Therapeutic Chemical indexes. 
+
+For this example we are interested in the cost time series (total cost of scripts in dollary-doos). 
+
+```{r}
+# look at data
+PBS %>% glimpse()
+
+# extract A10 scripts
+PBS %>%
+    filter(ATC2 == "A10") %>%
+    select(Month, Concession, Type, Cost) -> A10
+
+# summarize
+A10 %>%
+    summarise(total_cost = sum(Cost))
+
+# create a new variable
+A10 %<>%
+    summarize(total_cost = sum(Cost)) %>%
+    mutate(Cost = total_cost /  1e6)
+
+A10
+```
+
+#### Read a CSV and Convert to a tsibble 
+
+We can read files into R and then create a tsibble object by identifying which column contains the time index and which are keys (the remaining are values). 
+
+```{r}
+prison <- read_csv("https://otexts.com/fpp3/extrafiles/prison_population.csv") %>%
+    mutate(Quarter = yearquarter(date)) %>%
+    select(-date) %>%
+    as_tsibble(index = Quarter, key = c(state, gender, legal, indigenous))
+
+prison
+```
+
+This data ocntains 64 separate time series corresponding to the combinations of the 8 states, 2 genders, 2 legal statuses and 2 indigenous statuses. This spans from Q1 2005 to Q4 2016. 
+
+For a tsibble to be valid, it requires a unique time for each combination of keys. The tsibble, or as_tsibble function will return an error if this is not true. 
+
+## 2.2 | Time Plots 
+
+```{r}
+ansett %>%
+    filter(Airports == "MEL-SYD", Class == "Economy") %>%
+    autoplot(Passengers) +
+    labs(title = "Ansett Economy Class Passengers", subtitle = "Melbourne-Sydney") + xlab("Year")
+```
+
+autoplot automatically produces an appropriate plot of whatever we pass into the first argument. 
+
+The timeplot above reveals some interesting features:
+
+- There was a period when no passengers were carried due to an industrial dispute 
+- There was a period of reduced load in 1992 
+- A large increase in passenger load occurred in the second half of 1991 
+- There are some large dips at the beginning of the year due to holiday effects 
+- There are some periods of missing observations
+
+These all need to be taken into account in order to effectively forecast the passenger load into the future.
+
+Here is a simpler time series:
+
+```{r}
+A10 %>%
+    autoplot(Cost) +
+    ggtitle("Antidiabetic Drug Sales") +
+    ylab("$ Millions") + xlab("Year")
+```
+
+Definitions:
+
+**Trend**: A trend exists when there is a long term increase or decrease in the data. It doesn't have to be linear.
+
+**Seasonal**: A seasonal pattern occurs when a time series is affected by seasonal factors such as the time of the year or the day of the week. Seasonality is always of a fixed and known period. 
+
+**Cyclic**: A cycle occurs when the data exhibit rises and falls which are not of a fixed frequency. These are usually due to economic conditions, and are often related to the business cycle.
+
+## 2.4 | Seasonal Plots 
+
+A seasonal plot is similar to a time plot except that the data are plotted against the individual seasons in which the data were observed. 
+
+Here is an example with antidiabetic drug sales
+
+```{r}
+A10 %>%
+    gg_season(Cost, labels = "both") +
+    ylab("$ Millions") +
+    ggtitle("Seasonal Plot: Antidiabetic Drug Sales")
+```
+
+## 2.5 | Seasonal Subseries Plots 
+
+An alternative plot for seasonal patterns is where the data for each season are collected together in separate mini time plots.
+
+```{r}
+A10 %>%
+    gg_subseries(Cost) +
+    ylab("$ Millions") +
+    xlab("Year") +
+    ggtitle("Seasonal Subseries Plot: Antidiabetic Drug Sales")
+```
+
+The horizontal lines indicate the means for each month. 
+
+## 2.6 | Scatterplots
+
+It is also useful to explore relationships between time series.
+
+```{r}
+# half hourly electricity demand in gigawatts
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    autoplot(Demand) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Half-Hourly Electricity Demand: Victoria, Australia")
+
+# temperature
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    autoplot(Temperature) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Half-Hourly Temperatures: Melbourne, Australia")
+
+# plot demand against temperature
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    ggplot(aes(x = Temperature, y = Demand)) +
+    geom_point() +
+    ylab("Demand (GW)") + xlab("Temperature (Celsius)")
+```
+
+This last plot helps us visualize the relationship between the variables. Its clear that as temperature goes up, demand goes up as well. There is also a slight heating effect, where demand increases for low temperatures as well.
+
+### Correlation
+
+It is common to compute correlation coefficients to measure the strength of the relationship between two variables. The correlation coefficient only measures the strength of the linear relationship, and can sometimes be misleading. 
+
+### Scatterplot Matrices 
+
+When there are several potential predictor variables, its useful to plot each variable against each other variable. 
+
+```{r}
+visitors <- tourism %>%
+    group_by(State) %>%
+    summarize(Trips = sum(Trips))
+
+visitors %>% 
+    ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(vars(State), scales = "free_y") +
+    ylab("Number of Visitor Nights each Quarter (Millions)")
+```
+
+To see the relationships between these eight time series, we can plot each time series against the others. These plots can be arranged in a scatterplot matrix
+
+```{r}
+visitors %>%
+    spread(State, Trips) %>%
+    GGally::ggpairs(columns = 2:9)
+```
+
