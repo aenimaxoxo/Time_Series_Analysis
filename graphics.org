@@ -1,0 +1,496 @@
+* Time Series Graphics 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(fpp3)
+#+END_SRC
+
+** tsibble objects 
+
+*** The index variable 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tsibble)
+y <- tsibble(Year = 2015:2019,
+             Observation = c(123, 29, 78, 52, 110),
+             index = Year)
+#+END_SRC
+
+#+RESULTS:
+|   Year | Observation |
+|--------+-------------|
+| 2015.0 |       123.0 |
+| 2016.0 |        29.0 |
+| 2017.0 |        78.0 |
+| 2018.0 |        52.0 |
+| 2019.0 |       110.0 |
+ 
+tibble objects extend tidy data frames by introducing a temporal structure. 
+
+If we need to coerce a tibble to a tsibble, we could use a function to denote a new index. For example:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+z %>%
+    mutate(Month = yearmonth(Month)) %>%
+    as_tsibble(index = Month)
+#+END_SRC
+
+where z is a tibble with Month indexed like Year Mon 
+
+*** The key variables 
+
+A tsibble also allows multiple time series to be stored ina single object.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+olympic_running %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+|   Year | Length | Sex | Time |
+|--------+--------+-----+------|
+| 1896.0 | 100m   | men | 12.0 |
+| 1900.0 | 100m   | men | 11.0 |
+| 1904.0 | 100m   | men | 11.0 |
+| 1908.0 | 100m   | men | 10.8 |
+| 1912.0 | 100m   | men | 10.8 |
+| 1916.0 | 100m   | men |  nil |
+
+We see 
+
+# A tsibble: 312 x 4 [4Y]
+# Key:       Length, Sex [14]
+
+where [4Y] signifies that the date occurs every 4 years. The key structure informs us that there are 14 separate time series in the dataset in which the objects are uniquely identified by the keys: the length and sex variables. 
+
+*** Working with tsibble objects 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+PBS %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Month    | Concession   | Type        | ATC1 | ATC1_desc                       | ATC2 | ATC2_desc                   | Scripts |    Cost |
+|----------+--------------+-------------+------+---------------------------------+------+-----------------------------+---------+---------|
+| 1991 Jul | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 18228.0 | 67877.0 |
+| 1991 Aug | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 15327.0 | 57011.0 |
+| 1991 Sep | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 14775.0 | 55020.0 |
+| 1991 Oct | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 15380.0 | 57222.0 |
+| 1991 Nov | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 14371.0 | 52120.0 |
+| 1991 Dec | Concessional | Co-payments | A    | Alimentary tract and metabolism | A01  | STOMATOLOGICAL PREPARATIONS | 15028.0 | 54299.0 |
+
+Extract the A10 scripts
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+PBS %>%
+    filter(ATC2 == "A10")
+#+END_SRC
+
+Select columns 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+PBS %>%
+    filter(ATC2 == "A10") %>%
+    select(Month, Concession, Type, Cost)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+PBS %>%
+    filter(ATC2 == "A10") %>%
+    select(Month, Concession, Type, Cost) %>%
+    summarise(TotalC = sum(Cost)) %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Month    |    TotalC |
+|----------+-----------|
+| 1991 Jul | 3526591.0 |
+| 1991 Aug | 3180891.0 |
+| 1991 Sep | 3252221.0 |
+| 1991 Oct | 3611003.0 |
+| 1991 Nov | 3565869.0 |
+| 1991 Dec | 4306371.0 |
+
+The new variable totalC is the sum of all the costs values for each month. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+PBS %>%
+    filter(ATC2 == "A10") %>%
+    select(Month, Concession, Type, Cost) %>%
+    summarise(TotalC = sum(Cost)) %>%
+    mutate(Cost = TotalC / 1e6) -> a10
+#+END_SRC
+
+*** Read a csv and convert it to a tsibble 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv")
+
+prison %<>%
+    mutate(quarter = yearquarter(date)) %>%
+    select(-date) %>%
+    as_tsibble(key = c(state, gender, legal, indigenous),
+               index = quarter)
+#+END_SRC
+
+For a tsibble to be valid, it requires a unique index for each combination of keys. The tsibble() or as_tsibble() function will return an error if this is not true. 
+
+** Time Plots
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+melsyd_economy <- ansett %>%
+    filter(Airports == "MEL-SYD",
+           Class == "Economy")
+
+melsyd_economy %>%
+    autoplot(Passengers) +
+    labs(title = "Ansett Economy Class Passengers",
+         subtitle = "Melbourne-Sydney") +
+    xlab("Year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+- There was a period in 1989 when no passengers were carried — this was due to an industrial dispute.
+- There was a period of reduced load in 1992. This was due to a trial in which some economy class seats were replaced by business class seats.
+- A large increase in passenger load occurred in the second half of 1991.
+- There are some large dips in load around the start of each year. These are due to holiday effects.
+- There is a long-term fluctuation in the level of the series which increases during 1987, decreases in 1989, and increases again through 1990 and 1991.
+- There are some periods of missing observations.
+
+Any model will need to take all these features into account in order to effectively forecast the passenger load in the future. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+a10 %>%
+    autoplot(Cost) +
+    ggtitle("Antidiabetic Drug Sales") +
+    ylab("$ Millions") + xlab("Year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Time Series Patterns 
+
+*Trend*
+
+A trend exists when there is a long-term increase or decrease in the data. It does not have to be linear. Sometimes we will refer to a trend as “changing direction”, when it might go from an increasing trend to a decreasing trend.
+
+*Seasonal*
+
+A seasonal pattern occurs when a time series is affected by seasonal factors such as the time of the year or the day of the week. Seasonality is always of a fixed and known period. 
+
+*Cyclic*
+
+A cycle occurs when the data exhibit rises and falls that are not of a fixed frequency. These fluctuations are usually due to economic conditions, and are often related to the “business cycle”. The duration of these fluctuations is usually at least 2 years.
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-24 21:14:14
+[[file:Time Series Graphics/screenshot_2020-03-24_21-14-14.png]]
+
+** Seasonal Plots 
+
+A seasonal plot is similar to a time plot except that the data are plotted against the individual "seasons" in which the data were observed.
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+a10 %>%
+    gg_season(Cost, labels = "both") +
+    ylab("$ Millions") +
+    ggtitle("Seasonal Plot: Antidiabetic Drug Sales")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Multiple Seasonal Periods 
+
+When the data has more than one seasonal pattern, the period argument can be used to select which seasonal plot is required. 
+
+We can plot the daily, weekly, or yearly pattern as follows:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+elec_plot <- function(period) {
+    vic_elec %>%
+        gg_season(Demand,
+                  period = period) +
+        theme(legend.position = "none")
+}
+
+elec_plot("day")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+elec_plot("week")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+elec_plot("year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Seasonal Subseries Plots 
+
+An alternative plot that emphasizes seasonal patterns is where the data for each season are collected together in separate mini time plots:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+a10 %>%
+    gg_subseries(Cost) +
+    ylab("$ Millions") +
+    xlab("Year") +
+    ggtitle("Seasonal Subseries Plot: Antidiabetic Drug Sales")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Example: Australian Holiday Tourism
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+holidays <- tourism %>%
+    filter(Purpose == "Holiday") %>%
+    group_by(State) %>%
+    summarise(Trips = sum(Trips))
+
+holidays %>% head()
+#+END_SRC
+
+#+RESULTS:
+| State | Quarter | Trips |
+|-------+---------+-------|
+| ACT   | 1998 Q1 | 196.2 |
+| ACT   | 1998 Q2 | 126.8 |
+| ACT   | 1998 Q3 | 110.7 |
+| ACT   | 1998 Q4 | 170.5 |
+| ACT   | 1999 Q1 | 107.8 |
+| ACT   | 1999 Q2 | 124.6 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+holidays %>%
+    autoplot(Trips) +
+    ylab("Thousands of Trips") +
+    xlab("Year") +
+    ggtitle("Australian Domestic Holiday Nights")
+#+END_SRC
+
+#+RESULTS:
+m[[file:plot.svg]]
+
+This shows that there is a strong seasonality for most states, but they don't match.
+
+To see the timing of the seasonal peaks in each state, we can use a season plot:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+holidays %>%
+    gg_season(Trips) +
+    ylab("Thousands of Trips") +
+    ggtitle("Australian Domestic Holiday Nights")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+and the corresponding subseries plots:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+holidays %>%
+    gg_subseries(Trips) +
+    ylab("Thousands of Trips") +
+    ggtitle("Australian Domestic Holiday Nights")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Scatterplots
+
+It is also useful to visualize the relationships between time series. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    autoplot(Demand) +
+    xlab("Year : 2014") +
+    ylab(NULL) +
+    ggtitle("Half Hourly Electricity Demand: Victoria, Australia")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    autoplot(Temperature) +
+    xlab("Year: 2014") +
+    ylab(NULL) +
+    ggtitle("Half Hourly Temperatures: Melbourne, Australia")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We can study the relationship between demand and temperature by plotting one series against the other:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+vic_elec %>%
+    filter(year(Time) == 2014) %>%
+    ggplot(aes(x = Temperature,
+               y = Demand)) +
+    geom_point() +
+    ylab("Demand (GW)") +
+    xlab("Temperature (C)")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Scatterplot Matrices 
+
+When there are several potential predictor variables, it is useful to plot each variable against each other variable. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+visitors <- tourism %>%
+    group_by(State) %>%
+    summarise(Trips = sum(Trips))
+
+visitors %>%
+    ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(vars(State), scales = "free_y") +
+    ylab("Number of Visitor Nights each Quarter (Millions)")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Which we can visualize pairwise as such:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+visitors %>%
+    spread(State, Trips) %>%
+    GGally::ggpairs(columns = 2:9)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Lag Plots 
+
+Each graph below shows y_t plotted against y_{t-k} for different values of k
+
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+recent_production <- aus_production %>%
+    filter(year(Quarter) >= 1992)
+
+recent_production %>%
+    gg_lag(Beer, geom = "point")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Here the colors indicate the quarter of the variable on the y axis. The relationship is strongly positive at 4 and 8, reflecting the strong seasonality in the data. The negative relationship seen for lags 2 and 6 occurs because peaks (in q4) are plotted against troughs (in q2).
+
+** Autocorrelation 
+
+Just as correlation measures the extent of a linear relationship between two variables, autocorrelation measures the linear relationship between lagged values of a time series.
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-24 21:50:03
+[[file:Time Series Graphics/screenshot_2020-03-24_21-50-03.png]]
+
+The autocorrelation coefficients for the beer production data can be computed using the ACF function
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+recent_production %>%
+    ACF(Beer, lag_max = 9)
+#+END_SRC
+
+The values in the ACF column are r_1, ..., r_9 corresponding to the nine scatterplots above. 
+
+We usually plot the ACF to see how the correlations change with the lag k. The plot is sometimes known as a correlogram
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+recent_production %>%
+    ACF(Beer) %>%
+    autoplot()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Trend and Seasonality in ACF plots 
+
+When data have a trend, the autocorrelations for small lags tend to be large and positive because observations nearby in time tend to be nearby in size. 
+
+When data are seasonal, the autocorrelations will be larger for the seasonal lags (at multiples of the seasonal frequency) than for other lags
+
+The a10 data below shows both trend and seasonality 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+a10 %>%
+    ACF(Cost, lag_max = 48) %>%
+    autoplot()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+The slow decrease in the ACF as the lags increase is due to the trend, while the scalloped shape is due to the seasonality. 
+
+** White Noise 
+
+Time series that show no autocorrelation are called white noise. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+set.seed(8888)
+
+y <- tsibble(sample = 1:50,
+             wn = rnorm(50),
+             index = sample)
+
+y %>% autoplot(wn) + ggtitle("White Noise")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+y %>% ACF(wn) %>% autoplot()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+For white noise series we expect that the autocorrelation be close to 0. 
+
+If one or more of the large spikes is outside of the blue dashed lines, or if substantially more than 5% of the spikes are outside of these bounds, then the series is probably not white noise. 
+
+ 

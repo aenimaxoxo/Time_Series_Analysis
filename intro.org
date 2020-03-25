@@ -1,0 +1,45 @@
+* Forecasting: Principles and Practice 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(fpp3)
+#+END_SRC
+
+#+RESULTS:
+| x           |
+|-------------|
+| fable       |
+| feasts      |
+| fabletools  |
+| tsibbledata |
+| tsibble     |
+| ggplot2     |
+| lubridate   |
+| tidyr       |
+| dplyr       |
+| tibble      |
+| fpp3        |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
