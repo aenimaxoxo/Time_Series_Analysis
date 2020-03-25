@@ -23,31 +23,348 @@ library(magrittr)
 library(fpp3)
 #+END_SRC
 
-#+RESULTS:
-| x           |
-|-------------|
-| magrittr    |
-| fable       |
-| feasts      |
-| fabletools  |
-| tsibbledata |
-| tsibble     |
-| lubridate   |
-| fpp3        |
-| forcats     |
-| stringr     |
-| dplyr       |
-| purrr       |
-| readr       |
-| tidyr       |
-| tibble      |
-| ggplot2     |
-| tidyverse   |
-| stats       |
-| graphics    |
-| grDevices   |
-| utils       |
-| datasets    |
-| methods     |
-| base        |
+We think of time series as comprising three components:
 
+- a trend-cycle component 
+- a seasonal component 
+- a remainder component
+
+** Transformations and Adjustments
+
+Here we deal with four kinds of adjustments:
+
+- calendar adjustments
+- population adjustments 
+- inflation adjustments 
+- mathematical transformations
+
+*** Calendar Adjustments 
+
+Some of the variation seen is seasonal data may be due to simple calendar effects. In such cases, it is usually easier to remove the variation before doing any further analysis. 
+
+*** Population Adjustments
+
+Any data that are affected by population changes can be adjusted to give per-capita data. That is, consider the data per person (or per thousand or million people) rather than the total. 
+
+For most data that are affected by population changes, it is best to use per-capita data rather than the totals.
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+global_economy %>%
+    filter(Country == "Australia") %>%
+    autoplot(GDP / Population)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+
+vs 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+global_economy %>%
+    filter(Country == "Australia") %>%
+    autoplot(GDP)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Inflation Adjustments 
+
+Data which are affected by the value of money are best adjusted before modeling. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+(print_retail <- aus_retail %>%
+    filter(Industry == "Newspaper and book retailing") %>%
+    group_by(Industry) %>%
+    index_by(Year = year(Month)) %>%
+    summarise(Turnover = sum(Turnover)))
+
+(aus_economy <- global_economy %>%
+    filter(Code == "AUS"))
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+print_retail %>%
+    left_join(aus_economy, by = "Year") %>%
+    mutate(Adjusted_turnover = Turnover / CPI) %>%
+    gather("Type", "Turnover",
+           Turnover, Adjusted_turnover,
+           factor_key = TRUE) %>%
+    ggplot(aes(x = Year, y = Turnover)) +
+    geom_line() +
+    facet_grid(vars(Type), scales = "free_y") +
+    xlab("Years") + ylab(NULL) +
+    ggtitle("Turnover for the Australian Print Media Industry")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+By adjusting for inflation using the CPI, we can see that Australia's newspaper and book retailing industry has been in decline much longer than the original data suggests.
+
+*** Mathematical Transformations
+
+If the data shows variation that increases or decreases with the level of the series, then a transformation can be useful. 
+
+Often, we use a log transformation because it is interpretable. A change in 1 for a logged variable relates to a change in the base of the log on the original scale, i.e. a change in 1 for a base 10 log results in a 10 times increase. 
+
+A useful family of transformations, that includes both logarithms and power transformations, is the family of Box-Cox transformations.
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-25 12:21:19
+[[file:Time Series Decomposition/screenshot_2020-03-25_12-21-19.png]]
+
+where the log is a natural log. 
+
+If lambda is 1, then the transformed data is shifted downwards, but there is no change to the shape of the series. For all other values of lambda, the time series will change shape.
+
+A good value of lambda is one which makes the size of the seasonal variation about the same across the whole series, as that makes the forecasting model simpler. 
+
+The guerrero feature can be used to choose a value of lambda for you. In this case it chooses lambda = 0.12
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+aus_production %>%
+    features(Gas, features = guerrero) %>%
+    pull(lambda_guerrero) -> lam
+
+aus_production %>%
+    autoplot(box_cox(Gas, lam))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Time Series Components 
+
+If we assume an additive decomposition, then we can write 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-25 12:27:11
+[[file:Time Series Decomposition/screenshot_2020-03-25_12-27-11.png]]
+
+The additive decomposition is the most appropriate if the magnitude of the seasonal fluctuations, or the variation around the trend-cycle, does not vary with the level of the time series. 
+
+When the variation in the seasonal period, or the variation around the trend-cycle appears to be proportional to the level of the time series, then a multiplicative decomposition is more appropriate. These are common with economic time series. 
+
+An alternative to using a multiplicative decomposition is to transform the data until the variation in the series appears to be stable over time, then use an additive decomposition.
+
+*** Employment in the US Retail Sector 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+us_retail_employment <- us_employment %>%
+    filter(year(Month) >= 1990,
+           Title == "Retail Trade") %>%
+    select(-Series_ID)
+
+us_retail_employment %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Month    | Title        | Employed |
+|----------+--------------+----------|
+| 1990 Jan | Retail Trade |  13255.8 |
+| 1990 Feb | Retail Trade |  12966.3 |
+| 1990 Mar | Retail Trade |  12938.2 |
+| 1990 Apr | Retail Trade |  13012.3 |
+| 1990 May | Retail Trade |  13108.3 |
+| 1990 Jun | Retail Trade |  13182.8 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    autoplot(Employed) +
+    xlab("Year") + ylab("Persons (Thousands)") +
+    ggtitle("Total Employment in US Retail")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+To illustrate these ideas, we will use the STL decomposition, which is discussed in 3.7:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+dcmp <- us_retail_employment %>%
+    model(STL(Employed))
+
+components(dcmp) %>% head()
+#+END_SRC
+
+#+RESULTS:
+| .model        | Month    | Employed |   trend | season_year | remainder | season_adjust |
+|---------------+----------+----------+---------+-------------+-----------+---------------|
+| STL(Employed) | 1990 Jan |  13255.8 | 13290.8 |       -38.1 |       3.1 |       13293.9 |
+| STL(Employed) | 1990 Feb |  12966.3 | 13271.5 |      -261.0 |     -44.2 |       13227.3 |
+| STL(Employed) | 1990 Mar |  12938.2 | 13252.3 |      -291.1 |     -23.0 |       13229.3 |
+| STL(Employed) | 1990 Apr |  13012.3 | 13233.0 |      -220.8 |       0.1 |       13233.1 |
+| STL(Employed) | 1990 May |  13108.3 | 13212.8 |      -114.5 |      10.0 |       13222.8 |
+| STL(Employed) | 1990 Jun |  13182.8 | 13192.7 |       -25.6 |      15.7 |       13208.4 |
+
+Where our decomposition is Employed = trend + season_year + remainder
+
+The trend column follows the overall movement of the series, ignoring any seasonality and random fluctuations. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    autoplot(Employed, color = "gray") +
+    autolayer(components(dcmp), trend, color = "red") +
+    xlab("Year") +
+    ylab("Persons (Thousands)") +
+    ggtitle("Total Employment in US Retail")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We can plot all the components in a single figure using autoplot 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+components(dcmp) %>%
+    autoplot() +
+    xlab("Year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Seasonally Adjusted Data 
+
+If the seasonal component is removed from the original data, the resulting values are the "seasonally adjusted" data. 
+
+For an additive decomposition, this is given by y_t - S_t and for multiplicative data, the seasonally adjusted values are obtained using y_t/S_t.
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    autoplot(Employed, color = "gray") +
+    autolayer(components(dcmp), season_adjust, color = "blue") +
+    xlab("Year") + ylab("Persons (Thousands)") +
+    ggtitle("Total Employment in US Retail")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+If the variation due to seasonality is not of primary interest, the seasonally adjusted series can be useful. 
+
+** Moving Averages 
+
+The classical method of time series decomposition originated in the 1920s and was widely used until the 1950s. It still forms the basis of many time series decomposition methods, so it is important to understand how it works. 
+
+The first step is to use a moving average method to estimate the trend-cycle, so we begin by discussing moving averages.
+
+*** Moving Average Smoothing
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-25 12:46:35
+[[file:Time Series Decomposition/screenshot_2020-03-25_12-46-35.png]]
+
+where m = 2k + 1. That is, the estimate of the trend-cycle at time t is obtained by averaging values of the time series within k periods of t. Observations that are nearby in time tend to be nearby in value as well. 
+
+We call this an m-MA, a moving average of order m. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+global_economy %>%
+    filter(Country == "Australia") %>%
+    autoplot(Exports) +
+    xlab("Year") + ylab("% of GDP") +
+    ggtitle("Total Australian Exports")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We can easily compute the moving average with the slide_dbl function
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aus_exports <- global_economy %>%
+    filter(Country == "Australia") %>%
+    mutate("ma-5" = slide_dbl(Exports, mean, .size = 5, .align = "center"))
+#+END_SRC
+
+#+RESULTS:
+| Country   | Code |   Year |           GDP | Growth | CPI | Imports | Exports | Population | ma-5 |
+|-----------+------+--------+---------------+--------+-----+---------+---------+------------+------|
+| Australia | AUS  | 1960.0 | 18573188487.0 |    nil | 8.0 |    14.1 |    13.0 | 10276477.0 |  nil |
+| Australia | AUS  | 1961.0 | 19648336879.8 |    2.5 | 8.1 |    15.0 |    12.4 | 10483000.0 |  nil |
+| Australia | AUS  | 1962.0 | 19888005375.7 |    1.3 | 8.1 |    12.6 |    13.9 | 10742000.0 | 13.5 |
+| Australia | AUS  | 1963.0 | 21501847911.3 |    6.2 | 8.2 |    13.8 |    13.0 | 10950000.0 | 13.5 |
+| Australia | AUS  | 1964.0 | 23758539590.1 |    7.0 | 8.4 |    13.8 |    14.9 | 11167000.0 | 13.6 |
+| Australia | AUS  | 1965.0 | 25931235300.7 |    6.0 | 8.7 |    15.3 |    13.2 | 11388000.0 | 13.4 |
+
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+aus_exports %>%
+    autoplot(Exports) +
+    autolayer(aus_exports, `ma-5`, color = "red") +
+    xlab("Year") + ylab("Exports (% of GDP)") +
+    ggtitle("Total Australian Exports") +
+    guides(color = guide_legend(title = "series"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+In general, a larger order means a smoother curve. Simple moving averages such as these are usually of an odd order, so that they are symmetric. 
+
+*** Moving Averages of Moving Averages 
+
+It is possible to apply a moving average to a moving average. We might do this to make an even order moving average symmetric. 
+
+For example, we might take a moving average of order 4, and then apply another moving average to order 2 to the results. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+(beer <- aus_production %>%
+    filter(year(Quarter) >= 1992) %>%
+    select(Quarter, Beer))
+
+(beer_ma <- beer %>%
+    mutate(`4-MA` = slide_dbl(Beer, mean, .size = 4, .align = "center-left"),
+           `2x4-MA` = slide_dbl(`4-MA`, mean, .size = 2, .align = "center-right")))
+#+END_SRC
+
+When a 2-MA follows a moving average of an even order (such as 4), it is called a centered moving average of order 4. This is because the results are now symmetric. 
+
+In general, an even order MA should be followed by an even order MA to make it symmetric. Similarly, an odd order MA should be followed by an odd order MA. 
+
+*** Estimating the Trend-Cycle with Seasonal Data 
+
+The most common use of centered moving averages is for estimating the trend-cycle from seasonal data. 
+
+In general, a 2xm-MA is equivalent to a weighted moving average of order m + 1 where all observations take the weight 1/m, except for the first and last terms which take the weight 1/2m. 
+
+So if the seasonal period is even and of order m, we use a 2xm-MA to estimate the trend cycle. 
+
+If the seasonal period is odd and of order m, we use a m-MA to estimate the trend cycle. For example, a 2x12-ma can be used to estimate the trend cycle of monthly data and a 7-ma can be used to estimate the trend cycle of daily data with a weekly seasonality. 
+
+*** Example: Employment in the US Retail Sector
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+us_retail_employment_ma <- us_retail_employment %>%
+    mutate(`12-MA` = slide_dbl(Employed, mean, .size = 12, .align = "cr"),
+           `2x12-MA` = slide_dbl(`12-MA`, mean, .size = 12, .align = "cl"))
+
+us_retail_employment_ma %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Month    | Title        | Employed | 12-MA | 2x12-MA |
+|----------+--------------+----------+-------+---------|
+| 1990 Jan | Retail Trade |  13255.8 | nil   | nil     |
+| 1990 Feb | Retail Trade |  12966.3 | nil   | nil     |
+| 1990 Mar | Retail Trade |  12938.2 | nil   | nil     |
+| 1990 Apr | Retail Trade |  13012.3 | nil   | nil     |
+| 1990 May | Retail Trade |  13108.3 | nil   | nil     |
+| 1990 Jun | Retail Trade |  13182.8 | nil   | nil     |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment_ma %>%
+    autoplot(Employed, color = "gray") +
+    autolayer(us_retail_employment_ma,
+              vars(`2x12-MA`),
+              color = "red") +
+    xlab("Year") + ylab("Persons (Thousands)") +
+    ggtitle("Total Employment in US Retail")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
