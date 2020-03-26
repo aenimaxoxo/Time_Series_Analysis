@@ -281,16 +281,6 @@ aus_exports <- global_economy %>%
     mutate("ma-5" = slide_dbl(Exports, mean, .size = 5, .align = "center"))
 #+END_SRC
 
-#+RESULTS:
-| Country   | Code |   Year |           GDP | Growth | CPI | Imports | Exports | Population | ma-5 |
-|-----------+------+--------+---------------+--------+-----+---------+---------+------------+------|
-| Australia | AUS  | 1960.0 | 18573188487.0 |    nil | 8.0 |    14.1 |    13.0 | 10276477.0 |  nil |
-| Australia | AUS  | 1961.0 | 19648336879.8 |    2.5 | 8.1 |    15.0 |    12.4 | 10483000.0 |  nil |
-| Australia | AUS  | 1962.0 | 19888005375.7 |    1.3 | 8.1 |    12.6 |    13.9 | 10742000.0 | 13.5 |
-| Australia | AUS  | 1963.0 | 21501847911.3 |    6.2 | 8.2 |    13.8 |    13.0 | 10950000.0 | 13.5 |
-| Australia | AUS  | 1964.0 | 23758539590.1 |    7.0 | 8.4 |    13.8 |    14.9 | 11167000.0 | 13.6 |
-| Australia | AUS  | 1965.0 | 25931235300.7 |    6.0 | 8.7 |    15.3 |    13.2 | 11388000.0 | 13.4 |
-
 
 #+BEGIN_SRC R :file plot.svg :results graphics file
 aus_exports %>%
@@ -313,13 +303,13 @@ It is possible to apply a moving average to a moving average. We might do this t
 For example, we might take a moving average of order 4, and then apply another moving average to order 2 to the results. 
 
 #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
-(beer <- aus_production %>%
+beer <- aus_production %>%
     filter(year(Quarter) >= 1992) %>%
-    select(Quarter, Beer))
+    select(Quarter, Beer)
 
-(beer_ma <- beer %>%
+beer_ma <- beer %>%
     mutate(`4-MA` = slide_dbl(Beer, mean, .size = 4, .align = "center-left"),
-           `2x4-MA` = slide_dbl(`4-MA`, mean, .size = 2, .align = "center-right")))
+           `2x4-MA` = slide_dbl(`4-MA`, mean, .size = 2, .align = "center-right"))
 #+END_SRC
 
 When a 2-MA follows a moving average of an even order (such as 4), it is called a centered moving average of order 4. This is because the results are now symmetric. 
@@ -364,6 +354,159 @@ us_retail_employment_ma %>%
               color = "red") +
     xlab("Year") + ylab("Persons (Thousands)") +
     ggtitle("Total Employment in US Retail")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Classical Decomposition
+
+In classical decomposition, we assume that the seasonal component is constant from year to year. For multiplicative seasonality, the m values that form the seasonal component are sometimes called the seasonal indices.
+
+*** Additive Decomposition 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-25 17:30:56
+[[file:Time Series Decomposition/screenshot_2020-03-25_17-30-56.png]]
+
+Here is a classical decomposition of the total retail employment series across the US:
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    model(classical_decomposition(Employed,
+                                  type = "additive")) %>%
+    components() %>%
+    autoplot() +
+    xlab("Year") +
+    ggtitle("Classical Additive Decomposition of Total US Retail Employment")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Multiplicative Decomposition
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-25 17:40:36
+[[file:Time Series Decomposition/screenshot_2020-03-25_17-40-36.png]]
+
+While classical decomposition is still used, it is not recommended. Here are some of the problems with it:
+
+- The estimate of the trend cycle is unavailable for the first few and last few observations
+- The trend cycle estimates tend to over-smooth rapid rises and falls in the data 
+- The methods assume that the seasonal component repeats from year to year
+- This method is not robust to unusual events
+
+** X11 Decomposition
+
+This method is based on classical decomposition, but it has many extra steps and features in order to overcome the drawbacks of classical decomposition. 
+
+- trend-cycle estimates are available for all observations 
+- the seasonal component is allowed to vary slowly over time 
+- has some methods for handling trading day variation, holiday effectsm and effects of known predictions
+- it is highly robust to outliers and level shifts in the time series 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+x11_dcmp <- us_retail_employment %>%
+    model(x11 = feasts:::X11(Employed,
+                             type = "additive")) %>%
+    components()
+
+autoplot(x11_dcmp) +
+    xlab("Year") +
+    ggtitle("Additive X11 Decomposition of US Retail Employment in the US")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+x11_dcmp %>%
+    ggplot(aes(x = Month)) +
+    geom_line(aes(y = Employed,
+                  color = "Data")) +
+    geom_line(aes(y = season_adjust,
+                  color = "Seasonality Adjusted")) +
+    geom_line(aes(y = trend,
+                  color = "Trend")) +
+    xlab("Year") + ylab("Persons (Thousands)") +
+    ggtitle("Total Employment in US Retail") +
+    scale_color_manual(values = c("gray", "blue", "red"),
+                       breaks = c("Data", "Seasonality Adjusted", "Trend"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+It can be useful to use seasonal plots and seasonal subseries plots of the seasonal component. These help us visualize the variation in the seasonal component over time. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+x11_dcmp %>%
+    gg_subseries(seasonal)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** SEATS Decomposition
+
+SEATS stands for Seasonal Extraction in ARIMA Time Series 
+
+The procedure only works with quarterly and monthly data. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+seats_dcmp <- us_retail_employment %>%
+    model(seats = feasts:::SEATS(Employed)) %>%
+    components()
+
+seats_dcmp %>% head()
+#+END_SRC
+
+#+RESULTS:
+| .model | Month    | Employed |   trend | seasonal | irregular | season_adjust |
+|--------+----------+----------+---------+----------+-----------+---------------|
+| seats  | 1990 Jan |  13255.8 | 13265.2 |      1.0 |       1.0 |       13269.0 |
+| seats  | 1990 Feb |  12966.3 | 13244.2 |      1.0 |       1.0 |       13235.2 |
+| seats  | 1990 Mar |  12938.2 | 13236.0 |      1.0 |       1.0 |       13237.6 |
+| seats  | 1990 Apr |  13012.3 | 13231.8 |      1.0 |       1.0 |       13233.7 |
+| seats  | 1990 May |  13108.3 | 13220.6 |      1.0 |       1.0 |       13222.2 |
+| seats  | 1990 Jun |  13182.8 | 13204.8 |      1.0 |       1.0 |       13203.7 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+autoplot(seats_dcmp) +
+    xlab("Year") +
+    ggtitle("SEATS Decomposition of Total US Retail Employment")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+The *seasonal* package has many options for handling variations of X11 and SEATS
+
+http://www.seasonal.website/seasonal.html
+
+** STL Decomposition
+
+STL is an acronym for Seasonal and Trend Decomposition using Loess. 
+
+STL has several advantages over the classical, SEATS and X11 decomposition methods:
+
+- it will handle any type of seasonality
+- The seasonal component is allowed to change over time, and the rate of change can be controlled by the user 
+- The smoothness of the trend cycle can be controlled the the user 
+- It can be robust to outliers 
+
+and its disadvantages:
+
+- it does not handle trading day or calendar variation will 
+- it only provides facilities for additive decompositions 
+  It is possible to obtain a multiplicative decomposition by first taking logs of the data and then back-transforming the components. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    model(STL(Employed ~ trend(window = 7) + season(window = "periodic"),
+              robust = TRUE)) %>%
+    components() %>%
+    autoplot()
 #+END_SRC
 
 #+RESULTS:
