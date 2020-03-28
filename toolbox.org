@@ -1,0 +1,614 @@
+* The Forecaster's Toolbox 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(fpp3)
+#+END_SRC
+
+#+RESULTS:
+| x           |
+|-------------|
+| fable       |
+| feasts      |
+| fabletools  |
+| tsibbledata |
+| tsibble     |
+| lubridate   |
+| fpp3        |
+| magrittr    |
+| forcats     |
+| stringr     |
+| dplyr       |
+| purrr       |
+| readr       |
+| tidyr       |
+| tibble      |
+| ggplot2     |
+| tidyverse   |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
+
+In this chapter, we discuss some general tools that are useful for many different forecasting situations.
+
+** A tidy forecasting workflow 
+*** Data Preparation 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+global_economy %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Country     | Code |   Year |          GDP | Growth | CPI | Imports | Exports | Population |
+|-------------+------+--------+--------------+--------+-----+---------+---------+------------|
+| Afghanistan | AFG  | 1960.0 |  537777811.1 | nil    | nil |     7.0 |     4.1 |  8996351.0 |
+| Afghanistan | AFG  | 1961.0 |  548888895.6 | nil    | nil |     8.1 |     4.5 |  9166764.0 |
+| Afghanistan | AFG  | 1962.0 |  546666677.8 | nil    | nil |     9.3 |     4.9 |  9345868.0 |
+| Afghanistan | AFG  | 1963.0 |  751111191.1 | nil    | nil |    16.9 |     9.2 |  9533954.0 |
+| Afghanistan | AFG  | 1964.0 |  800000044.4 | nil    | nil |    18.1 |     8.9 |  9731361.0 |
+| Afghanistan | AFG  | 1965.0 | 1006666637.8 | nil    | nil |    21.4 |    11.3 |  9938414.0 |
+
+*** Plot the data
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+global_economy %>%
+    filter(Country == "Sweden") %>%
+    autoplot(GDP) +
+    ggtitle("GDP for Sweden") +
+    ylab("$ US Billions")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Define a model 
+
+Before fitting a model to the data, we must first describe the model. For example, here is a linear model 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+TSLM(GDP ~ trend())
+#+END_SRC
+
+#+RESULTS:
+: nil
+
+
+*** Train the Model (estimate)
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit <- global_economy %>%
+    model(trend_model = TSLM(GDP ~ trend()))
+#+END_SRC
+
+#+RESULTS:
+: nil
+
+# A mable: 263 x 2
+# Key:     Country [263]
+   Country             trend_model
+   <fct>               <model>    
+ 1 Afghanistan         <TSLM>     
+ 2 Albania             <TSLM>     
+ 3 Algeria             <TSLM>     
+ 4 American Samoa      <TSLM>     
+ 5 Andorra             <TSLM>     
+ 6 Angola              <TSLM>     
+ 7 Antigua and Barbuda <TSLM>     
+ 8 Arab World          <TSLM>     
+ 9 Argentina           <TSLM>     
+10 Armenia             <TSLM>     
+# … with 253 more rows
+
+Is what we get returned. Each row corresponds to one combination of the key variables. The trend_model column contains information about the fitted model for each country. 
+
+*** Check Model Performance (evaluate)
+
+section 5.6 goes into further detail 
+
+*** Produce forecasts 
+
+Once the appropriate model is specified, estimated and checked, we can produce forecasts with the forecast() function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit %>% forecast(h = "3 years") %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Country     | .model      |   Year |           GDP | .distribution                                                              |
+|-------------+-------------+--------+---------------+----------------------------------------------------------------------------|
+| Afghanistan | trend_model | 2018.0 | 16205101654.3 | list(mean = 16205101654.2559, sd = 3557523921.5856, .env = <environment>)  |
+| Afghanistan | trend_model | 2019.0 | 16511878140.7 | list(mean = 16511878140.694, sd = 3564251257.01809, .env = <environment>)  |
+| Afghanistan | trend_model | 2020.0 | 16818654627.1 | list(mean = 16818654627.1322, sd = 3571178343.58943, .env = <environment>) |
+| Albania     | trend_model | 2018.0 | 13733734164.3 | list(mean = 13733734164.3223, sd = 1963091151.98498, .env = <environment>) |
+| Albania     | trend_model | 2019.0 | 14166852711.2 | list(mean = 14166852711.2135, sd = 1972682859.67109, .env = <environment>) |
+| Albania     | trend_model | 2020.0 | 14599971258.1 | list(mean = 14599971258.1048, sd = 1982757101.8667, .env = <environment>)  |
+
+This is a forecasting table, or fable. Each row corresponds to one forecast period for each country. The GDP column contains the point forecast, while the .distribution column contains the forecasting distribution. 
+
+We can plot the forecasts as follows: 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit %>%
+    forecast(h = "3 years") %>%
+    filter(Country == "Sweden") %>%
+    autoplot(global_economy) +
+    ggtitle("GDP for Sweden") +
+    ylab("$ US Billions")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Some simple forecasting methods 
+
+Some simple forecasting methods are extremely simple and surprisingly effective. We will use four simple forecasting methods as benchmarks throughout the book. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bricks <- aus_production %>%
+    filter_index(1970 ~ 2004)
+#+END_SRC
+
+*** Average Method 
+
+Here the forecasts of all future values are equal to the average or mean of the historical data. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bricks %>%
+    model(MEAN(Bricks))
+#+END_SRC
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 20:00:12
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_20-00-12.png]]
+
+*** Naive Method 
+
+For naive forecasts, we simply set all forecasts to be the value of the last observation. Since a naive forecast is optimal when data follow a random walk, these are also called random walk forecasts. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bricks %>% model(NAIVE(Bricks))
+#+END_SRC
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 20:00:27
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_20-00-27.png]]
+
+*** Seasonal Naive Method 
+
+In this method we set each forecast to be equal to the last observed value from the same season of the year (e.g. the same month of the previous year). 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bricks %>% model(SNAIVE(Bricks ~ lag("year")))
+#+END_SRC
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 20:06:08
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_20-06-08.png]]
+
+*** Drift Method 
+
+A variation on the naive method is to allow the forecasts to increase or decrease over time, where the amount of change over time (called the drift) is set to be the average change seen in the historical data. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bricks %>% model(RW(Bricks ~ drift()))
+#+END_SRC
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 20:07:30
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_20-07-30.png]]
+
+*** Example: Australian Quarterly Beer Production 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# set training data from 1992 to 2006
+train <- aus_production %>%
+    filter_index("1992 Q1" ~ "2006 Q4")
+
+# fit models
+beer_fit <- train %>%
+    model(Mean = MEAN(Beer),
+          Naive = NAIVE(Beer),
+          Seasonal_Naive = SNAIVE(Beer))
+
+# generate forecasts for 14 quarters 
+beer_fc <- beer_fit %>% forecast(h = 14)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+beer_fc %>%
+    autoplot(train, level = NULL) +
+    autolayer(filter_index(aus_production, "2007 Q1" ~ .),
+              color = "black") +
+    ggtitle("Forecasts for Quarterly Beer Production") +
+    xlab("Year") + ylab("Megalitres") +
+    guides(color = guide_legend(title = "Forecast"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# re-index based on trading days
+google_stock <- gafa_stock %>%
+    filter(Symbol == "GOOG") %>%
+    mutate(day = row_number()) %>%
+    update_tsibble(index = day, regular = TRUE)
+
+# filter the year of interest 
+google_15 <- google_stock %>% filter(year(Date) == 2015)
+
+# fit the models
+google_fit <- google_15 %>%
+    model(Mean = MEAN(Close),
+          Naive = NAIVE(Close),
+          Drift = NAIVE(Close ~ drift()))
+
+# produce forecasts for the 19 trading days in January 2015
+google_fc <- google_fit %>% forecast(h = 19)
+
+# a better way using a tsibble to determine the forecast horizons 
+google_16 <- google_stock %>%
+    filter(yearmonth(Date) == yearmonth("2016 Jan"))
+
+google_fc <- google_fit %>% forecast(google_16)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+# plot the forecasts
+google_fc %>%
+    autoplot(google_15, level = NULL) +
+    autolayer(google_16, Close, color = "black") +
+    ggtitle("Google Stock (Daily Ending 31Dec15)") +
+    xlab("Day") + ylab("Closing Price (US$)") +
+    guides(color = guide_legend(title = "Forecast"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+
+Sometimes these simple methods will be the best forecasting method available, but in many cases they serve best as benchmarks rather than the method of choice. 
+
+** Fitted Values and Residuals 
+
+The fitted values and residuals from a model can be ontained using the augment function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+augment(beer_fit) %>% head()
+#+END_SRC
+
+#+RESULTS:
+| .model | Quarter |  Beer | .fitted | .resid |
+|--------+---------+-------+---------+--------|
+| Mean   | 1992 Q1 | 443.0 |   436.4 |    6.6 |
+| Mean   | 1992 Q2 | 410.0 |   436.4 |  -26.4 |
+| Mean   | 1992 Q3 | 420.0 |   436.4 |  -16.4 |
+| Mean   | 1992 Q4 | 532.0 |   436.4 |   95.5 |
+| Mean   | 1993 Q1 | 433.0 |   436.4 |   -3.4 |
+| Mean   | 1993 Q2 | 421.0 |   436.4 |  -15.4 |
+
+** Residual Diagnostics 
+
+A good forecasting method will yield results with the following properties:
+
+1. The residuals are uncorrelated. If there are correlations between residuals, then there is information left in the residuals which should be used in computing forecasts
+2. The residuals have 0 mean. If the residuals have mean other than zero, then the forecasts are biased. 
+
+In addition, it is useful, but not necessary for the residuals to also have the following properties:
+
+1. The residuals have constant variance 
+2. The residuals are normally distributed
+
+*** Example: Forecasting the Google Daily Closing Stock Price
+
+For stock market prices, the best forecasting method is often the naive method. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+google_15 %>%
+    autoplot(Close) +
+    xlab("Day") + ylab("Closing Price (US $)") +
+    ggtitle("Google Stock in 2015")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We can look at the residuals obtained from forecasting this series 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aug <- google_15 %>%
+    model(NAIVE(Close)) %>%
+    augment()
+#+END_SRC
+
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+aug %>%
+    autoplot(.resid) +
+    xlab("Day") +
+    ylab("") +
+    ggtitle("Residuals from Naive Method")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+google_15 %>%
+    model(NAIVE(Close)) %>%
+    gg_tsresiduals()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+In the residuals we see 
+
+- the mean is close to zero 
+- there is no significant correlation in the residuals series
+- the histogram suggests that the distribution might not be normal due to the long right tail 
+
+*** Portmanteau Tests for Autocorrelation
+
+In addition to looking at the ACF plot, we can also do a more formal test for autocorrelation by considering a whole set of r_k values as a group rather than treating each one separately. 
+
+Recall that r_k is the autocorrelation for lag k. When we look at ACF plots to see whether each spike is within the required limits, we are implicitly carrying out multiple hypothesis tests, each with a small probability of giving a false positive. When enough are performed, we are bound to get false positives for autocorrelation. 
+
+In order to overcome this problem, we test whether the first h autocorrelations are significantly different from what would be expected frin a white noise process. A test for a group of autocorrelations is called a portmanteau test. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 21:58:08
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_21-58-08.png]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aug %>%
+    features(.resid, box_pierce, lag = 10, dof = 0)
+#+END_SRC
+
+#+RESULTS:
+| Symbol | .model       | bp_stat | bp_pvalue |
+|--------+--------------+---------+-----------|
+| GOOG   | NAIVE(Close) |     7.7 |       0.7 |
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aug %>%
+    features(.resid, ljung_box, lag = 10, dof = 0)
+#+END_SRC
+
+#+RESULTS:
+| Symbol | .model       | lb_stat | lb_pvalue |
+|--------+--------------+---------+-----------|
+| GOOG   | NAIVE(Close) |     7.9 |       0.6 |
+
+For both Q and Q* the results are not significant. Thus we conclude that the residuals are not distinguishable from a white noise series. 
+
+
+** Prediction Intervals 
+
+Assuming that the residuals are normally distributed, a 95% prediction interval for the h-step forecast is
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:05:50
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-05-50.png]] 
+
+More generally, we can write 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:06:05
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-06-05.png]]
+
+Where c depends on the coverage probability. 
+
+| Percentage | Multiplier |
+|------------+------------|
+|         50 |       0.67 |
+|         55 |       0.76 |
+|         60 |       0.84 |
+|         65 |       0.93 |
+|         70 |       1.04 |
+|         75 |       1.15 |
+|         80 |       1.28 |
+|         85 |       1.44 |
+|         90 |       1.64 |
+|         95 |       1.96 |
+|         96 |       2.05 |
+|         97 |       2.17 |
+|         98 |       2.33 |
+|         99 |       2.58 |
+
+*** One-step Prediction Intervals 
+
+When forecasting one step ahead, the standard deviation of the forecast distribution is almost the same as the standard deviation of the residuals. 
+
+*** Multi-step Prediction Intervals
+
+A common feature of prediction intervals is that they increase in length as the forecast horizon increases. The further ahead we forecast, the more uncertainty is associated with the forecast, and the wider the prediction intervals. 
+
+*** Benchmark Methods 
+
+For the four benchmark methods there is an easy mathematical derivation under the assumption of uncorrelated residuals. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:15:13
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-15-13.png]]
+
+Prediction intervals are easily computed when using the fable package. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_15 %>%
+    model(NAIVE(Close)) %>%
+    forecast(h = 10) %>%
+    hilo()
+#+END_SRC
+
+By default, 80% and 95% prediction intervals are returned, but other options are available with the level argument. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+google_15 %>%
+    model(NAIVE(Close)) %>%
+    forecast(h = 10) %>%
+    autoplot(google_15)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Prediction Intervals from Bootstrapped Residuals 
+
+When a normal distribution for the residuals is an unreasonable assumption, one alternative is to use bootstrapping, which only assumes that the residuals are uncorrelated. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:19:41
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-19-41.png]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit <- google_15 %>%
+    model(NAIVE(Close))
+
+sim <- fit %>%
+    generate(h = 30, times = 5, bootstrap = TRUE)
+
+sim %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Symbol | .model       | .rep |   day |  .sim |
+|--------+--------------+------+-------+-------|
+| GOOG   | NAIVE(Close) |  1.0 | 505.0 | 743.7 |
+| GOOG   | NAIVE(Close) |  1.0 | 506.0 | 754.7 |
+| GOOG   | NAIVE(Close) |  1.0 | 507.0 | 737.3 |
+| GOOG   | NAIVE(Close) |  1.0 | 508.0 | 743.8 |
+| GOOG   | NAIVE(Close) |  1.0 | 509.0 | 738.7 |
+| GOOG   | NAIVE(Close) |  1.0 | 510.0 | 737.6 |
+
+Here we have generated 5 different possible sample paths for the next 30 trading days.
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+google_15 %>%
+    ggplot(aes(x = day)) +
+    geom_line(aes(y = Close)) +
+    geom_line(aes(y = .sim,
+                  color = as.factor(.rep)),
+              data = sim) +
+    ggtitle("Google Closing Stock Price") +
+    guides(col = FALSE)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Then we can compute prediction intervals by calculating percentiles of the future sample paths for each forecast horizon. The result is called a bootstrapped prediction interval. 
+
+This is all built into the forecast() function, so we do not need to call generate() directly.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fc <- fit %>% forecast(h = 30,
+                       bootstrap = TRUE)
+#+END_SRC
+
+Note that the forecast distribution is now represented as a simulation with 5000 sample paths. Since there is no normality assumption, the prediction intervals are not symmetric. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fc %>%
+    autoplot(google_15) +
+    ggtitle("Google Closing Price")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+The number of samples can be controlled using the times argument for forecast. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_15 %>%
+    model(NAIVE(Close)) %>%
+    forecast(h = 10,
+             bootstrap = TRUE,
+             times = 1000) %>%
+    hilo()
+#+END_SRC
+
+** Evaluating Forecast Accuracy 
+
+*** Functions to subset a time series 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aus_production %>%
+    filter(year(Quarter) >= 1995)
+
+aus_production %>%
+    filter(quarter(Quarter) == 1)
+
+# extract the last 20 observations
+aus_production %>%
+    slice(n() - 19:0)
+
+# slice by group
+## subsets the first year from each time series in the data
+aus_retail %>%
+    group_by(State, Industry) %>%
+    slice(1:12)
+
+# top_n is useful for extracting extreme observations 
+gafa_stock %>%
+    group_by(Symbol) %>%
+    top_n(1, Close)
+#+END_SRC
+
+*** Forecast Errors 
+
+A forecast "error" is the difference between an observed value and its forecast. Here error means the unpredictable part of an observation. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:34:24
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-34-24.png]]
+
+Forecast errors are different from residuals in 2 ways:
+
+- residuals are calculated on the training set while forecast errors are calculated on the test setwd
+- residuals are based on one-step forecasts, which forecast errors can involve multistep forecasts
+
+*** Scale-Dependent Errors
+
+The forecast errors are on the same scale as the data. Accuracy measures that are based only on e_t are therefore scale dependent and cannot be used to make comparisons between series that involve different units.
+
+The two most commonly used scale-dependent measures are based on the absolute errors or squared errors:
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:37:01
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-37-01.png]]
+
+A forecast that minimizes MAE will lead to forecasts of the median, whereas minimizing MSE will lead to forecasts of the mean. 
+
+*** Percentage Errors 
+
+The percentage error is given by p_t = 100 * e_t / y_t. Percentage errors have the advantage of being unit-free, so they are frequently used to compare forecast performances between datasets.
+
+The most commonly used measure is:
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:38:57
+[[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-38-57.png]]
+

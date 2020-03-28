@@ -1,0 +1,393 @@
+* Time Series Features 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(fpp3)
+#+END_SRC
+
+#+RESULTS:
+| x           |
+|-------------|
+| fable       |
+| feasts      |
+| fabletools  |
+| tsibbledata |
+| tsibble     |
+| lubridate   |
+| fpp3        |
+| magrittr    |
+| forcats     |
+| stringr     |
+| dplyr       |
+| purrr       |
+| readr       |
+| tidyr       |
+| tibble      |
+| ggplot2     |
+| tidyverse   |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
+** Some simple statistics 
+
+Any numerical summary computed for a time series is a feature of that time series -- the mean, minimum or maximum, for example. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tourism %>%
+    features(Trips, list("mean" = mean)) %>%
+    arrange(desc(mean)) %>% 
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Region          | State           | Purpose  |  mean |
+|-----------------+-----------------+----------+-------|
+| Sydney          | New South Wales | Visiting | 747.3 |
+| Melbourne       | Victoria        | Visiting | 618.9 |
+| Sydney          | New South Wales | Business | 602.0 |
+| North Coast NSW | New South Wales | Holiday  | 587.9 |
+| Sydney          | New South Wales | Holiday  | 550.3 |
+| Gold Coast      | Queensland      | Holiday  | 528.3 |
+
+Rather than compute one feature at a time, it is useful to compute many features at once. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tourism %>%
+    features(Trips, quantile, prob = seq(0, 1, by = 0.25)) %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Region         | State           | Purpose  |    0% |   25% |   50% |   75% |  100% |
+|----------------+-----------------+----------+-------+-------+-------+-------+-------|
+| Adelaide       | South Australia | Business |  68.7 | 133.9 | 152.6 | 176.9 | 242.5 |
+| Adelaide       | South Australia | Holiday  | 108.0 | 134.6 | 153.9 | 172.3 | 223.6 |
+| Adelaide       | South Australia | Other    |  25.9 |  43.9 |  53.8 |  62.5 | 107.5 |
+| Adelaide       | South Australia | Visiting | 136.6 | 178.9 | 205.6 | 229.3 | 269.5 |
+| Adelaide Hills | South Australia | Business |   0.0 |   0.0 |   1.3 |   3.9 |  28.6 |
+| Adelaide Hills | South Australia | Holiday  |   0.0 |   5.8 |   8.5 |  14.1 |  35.8 |
+
+** ACF Features 
+
+All of the autocorrelations of a series can be considred features of that series. We can also summarize the autocorrelations to produce new features. We can also compute autocorrelations of transformations of a time series.
+
+ The feat_acf function computes a selection of the autocorrelations discussed here. It will return 6 or 7 features:
+
+- the first autocorrelation coefficient from the original data
+- the sum of square of the first ten autocorrelation coefficients from the original data
+- the first autocorrelation coefficient from the differenced data
+- the sum of square of the first ten autocorrelation coefficients from the differenced data
+- the first autocorrelation coefficient from the twice differenced data
+- the sum of square of the first ten autocorrelation coefficients from the twice differenced data
+- For seasonal data, the autocorrelation coefficient at the first seasonal lag is also returned
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tourism %>%
+    features(Trips, feat_acf) %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Region         | State           | Purpose  | acf1 | acf10 | diff1_acf1 | diff1_acf10 | diff2_acf1 | diff2_acf10 | season_acf1 |
+|----------------+-----------------+----------+------+-------+------------+-------------+------------+-------------+-------------|
+| Adelaide       | South Australia | Business |  0.0 |   0.1 |       -0.5 |         0.5 |       -0.7 |         0.7 |         0.2 |
+| Adelaide       | South Australia | Holiday  |  0.0 |   0.4 |       -0.3 |         0.6 |       -0.5 |         0.6 |         0.4 |
+| Adelaide       | South Australia | Other    |  0.5 |   1.2 |       -0.4 |         0.4 |       -0.7 |         0.8 |         0.3 |
+| Adelaide       | South Australia | Visiting |  0.1 |   0.3 |       -0.4 |         0.5 |       -0.5 |         0.4 |         0.3 |
+| Adelaide Hills | South Australia | Business |  0.1 |   0.1 |       -0.6 |         0.4 |       -0.8 |         0.7 |        -0.1 |
+| Adelaide Hills | South Australia | Holiday  |  0.1 |   0.3 |       -0.5 |         0.5 |       -0.7 |         0.9 |         0.2 |
+
+** STL Features 
+
+The STL decompositions discussed in chapter 3 are the basis for several more features. 
+
+We define strength of trend as 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-26 13:11:00
+[[file:Time Series Features/screenshot_2020-03-26_13-11-00.png]]
+
+We define strength of seasonality as 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-26 13:11:17
+[[file:Time Series Features/screenshot_2020-03-26_13-11-17.png]]
+
+Other useful features based on STL include the timing of peaks and troughs -- which month or quarter contains the largest seasonal component and which contains the smallest seasonal component. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tourism %>%
+    features(Trips, feat_stl) %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+| Region         | State           | Purpose  | trend_strength | seasonal_strength_year | seasonal_peak_year | seasonal_trough_year | spikiness | linearity | curvature | stl_e_acf1 | stl_e_acf10 |
+|----------------+-----------------+----------+----------------+------------------------+--------------------+----------------------+-----------+-----------+-----------+------------+-------------|
+| Adelaide       | South Australia | Business |            0.5 |                    0.4 |                3.0 |                  1.0 |     161.6 |      -5.5 |      71.4 |       -0.5 |         0.5 |
+| Adelaide       | South Australia | Holiday  |            0.5 |                    0.6 |                1.0 |                  3.0 |      10.0 |      48.9 |      78.2 |       -0.5 |         0.5 |
+| Adelaide       | South Australia | Other    |            0.7 |                    0.2 |                2.0 |                  1.0 |       2.3 |      95.0 |      43.4 |       -0.4 |         0.4 |
+| Adelaide       | South Australia | Visiting |            0.4 |                    0.4 |                1.0 |                  3.0 |      60.1 |      34.9 |      71.1 |       -0.5 |         0.9 |
+| Adelaide Hills | South Australia | Business |            0.5 |                    0.1 |                3.0 |                  1.0 |       0.1 |       0.9 |      -3.3 |       -0.6 |         0.5 |
+| Adelaide Hills | South Australia | Holiday  |            0.5 |                    0.2 |                2.0 |                  1.0 |       0.2 |      10.4 |      23.8 |       -0.5 |         0.3 |
+
+We can then use these features in plots to identify what type of series are heavily trended and what are most seasonal. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+tourism %>%
+    features(Trips, feat_stl) %>%
+    ggplot(aes(x = trend_strength,
+               y = seasonal_strength_year,
+               col = Purpose)) +
+    geom_point() +
+    facet_wrap(vars(State))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Holiday series are the most seasonal, which makes sense. The strongest trends are in western australia. 
+
+The most seasonal series can be identified and plotted 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+tourism %>%
+    features(Trips, feat_stl) %>%
+    filter(seasonal_strength_year == max(seasonal_strength_year)) %>%
+    left_join(tourism, by = c("State", "Region", "Purpose")) %>%
+    ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(vars(State, Region, Purpose))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+This shows holiday trips to the most popular ski region of Australia. 
+
+The feat_stl function returns more features other than those shown above:
+
+- spikiness measures the prevalence of spikes in the remainder component of the STL decomposition. It is the variance of the leave one out variances of the remainder 
+- linearity measures the linearity of the trend component of the STL decomposition. It is based on the coefficient of a linear regressuin applied to the trend component 
+- curvature measures the curvature of the trend component of the STL decomposition. It is basaed on the coefficient from an orthogonal quadratic regression applied to the trend component. 
+- stl_e_acf1 is the first autocorrelation coefficient of the remainder series 
+- stl_e_acf10 is the sum of squares of the first ten autocorrelation coefficients of the remainder series
+
+** Other Features 
+
+The remaining features in the feasts package, not previously discussed, are listed here for reference. The details of some of them are discussed later in the book.
+
+- coef_hurst will calculate the Hurst coefficient of a time series which is a measure of “long memory”. A series with long memory will have significant autocorrelations for many lags.
+
+- spectral_entropy will compute the (Shannon) spectral entropy of a time series, which is a measure of how easy the series is to forecast. A series which has strong trend and seasonality (and so is easy to forecast) will have entropy close to 0. A series that is very noisy (and so is difficult to forecast) will have entropy close to 1.
+
+- bp_stat gives the Box-Pierce statistic for testing if a time series is white noise, while bp_pvalue gives the p-value from that test. This test is discussed in Section 5.4.
+
+- lb_stat gives the Ljung-Box statistic for testing if a time series is white noise, while lb_pvalue gives the p-value from that test. This test is discussed in Section 5.4.
+
+- The kth partial autocorrelations measure the relationship between observations k periods apart after removing the effects of observations between them. So the first partial autocorrelation (k = 1) is identical to the first autocorrelation, because there is nothing between them to remove. Partial autocorrelations are discussed in Section 9.5. The pacf5 feature contains the sum of squares of the first five partial autocorrelations.
+
+- diff1_pacf5 contains the sum of squares of the first five partial autocorrelations from the differenced data.
+
+- diff2_pacf5 contains the sum of squares of the first five partial autocorrelations from the differenced data.
+
+- season_pacf contains the partial autocorrelation at the first seasonal lag.
+
+- kpss_stat gives the Kwiatkowski-Phillips-Schmidt-Shin (KPSS) statistic for testing if a series is stationary, while kpss_pvalue gives the p-value from that test. This test is discussed in Section 9.1.
+
+- pp_stat gives the Phillips-Perron statistic for testing if a series is non-stationary, while pp_pvalue gives the p-value from that test.
+
+- ndiffs gives the number of differences required to lead to a stationary series based on the KPSS test. This is discussed in Section 9.1
+
+- nsdiffs gives the number of seasonal differences required to make a series stationary. This is discussed in Section 9.1.
+
+- var_tiled_mean gives the variances of the “tiled means” (i.e., the means of consecutive non-overlapping blocks of observations). The default tile length is either 10 (for non-seasonal data) or the length of the seasonal period. This is sometimes called the “stability” feature.
+
+- var_tiled_var gives the variances of the “tiled variances” (i.e., the variances of consecutive non-overlapping blocks of observations). This is sometimes called the “lumpiness” feature.
+
+- shift_level_max finds the largest mean shift between two consecutive sliding windows of the time series. This is useful for finding sudden jumps or drops in a time series.
+
+- shift_level_index gives the index at which the largest mean shift occurs.
+
+- shift_var_max finds the largest variance shift between two consecutive sliding windows of the time series. This is useful for finding sudden changes 
+in the volatility of a time series.
+
+- shift_var_index gives the index at which the largest mean shift occurs
+
+- shift_kl_max finds the largest distributional shift (based on the Kulback-Leibler divergence) between two consecutive sliding windows of the time series. This is useful for finding sudden changes in the distribution of a time series.
+
+- shift_kl_index gives the index at which the largest KL shift occurs.
+
+- n_crossing_points computes the number of times a time series crosses the median.
+
+- n_flat_spots computes the number of sections of the data where the series is relatively unchanging.
+
+- stat_arch_lm returns the statistic based on the Lagrange Multiplier (LM) test of Engle (1982) for autoregressive conditional heteroscedasticity (ARCH).
+
+** Exploring Australian Tourism Data 
+
+All of the features in the feasts package can be computed in one line like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tourism_feats <- tourism %>%
+    features(Trips, feature_set(pkgs = "feasts"))
+
+tourism_feats %>% names()
+#+END_SRC
+
+#+RESULTS:
+| x                      |
+|------------------------|
+| Region                 |
+| State                  |
+| Purpose                |
+| trend_strength         |
+| seasonal_strength_year |
+| seasonal_peak_year     |
+| seasonal_trough_year   |
+| spikiness              |
+| linearity              |
+| curvature              |
+| stl_e_acf1             |
+| stl_e_acf10            |
+| acf1                   |
+| acf10                  |
+| diff1_acf1             |
+| diff1_acf10            |
+| diff2_acf1             |
+| diff2_acf10            |
+| season_acf1            |
+| pacf5                  |
+| diff1_pacf5            |
+| diff2_pacf5            |
+| season_pacf            |
+| zero_run_mean          |
+| nonzero_squared_cv     |
+| zero_start_prop        |
+| zero_end_prop          |
+| lambda_guerrero        |
+| kpss_stat              |
+| kpss_pvalue            |
+| pp_stat                |
+| pp_pvalue              |
+| ndiffs                 |
+| nsdiffs                |
+| bp_stat                |
+| bp_pvalue              |
+| lb_stat                |
+| lb_pvalue              |
+| var_tiled_var          |
+| var_tiled_mean         |
+| shift_level_max        |
+| shift_level_index      |
+| shift_var_max          |
+| shift_var_index        |
+| shift_kl_max           |
+| shift_kl_index         |
+| spectral_entropy       |
+| n_crossing_points      |
+| n_flat_spots           |
+| coef_hurst             |
+| stat_arch_lm           |
+
+This gives 48 features for every combination of the three key variables (Region, State, and Purpose).
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+tourism_feats %>%
+    select_at(vars(contains("season"), Purpose)) %>%
+    mutate(seasonal_peak_year = glue::glue("Q{seasonal_peak_year + 1}"),
+           seasonal_peak_trough = glue::glue("Q{seasonal_trough_year + 1}")) %>%
+    GGally::ggpairs(mapping = aes(color = Purpose))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+There is a lot of information here. Another useful way to handle many more variables is to use a dimension reduction technique such as principal components. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(broom)
+
+tourism_feats %>%
+    select(-State, -Region, -Purpose) %>%
+    prcomp(scale = TRUE) %>%
+    augment(tourism_feats) -> pcs
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+pcs %>%
+    ggplot(aes(x = .fittedPC1,
+               y = .fittedPC2,
+               col = Purpose)) +
+    geom_point() +
+    theme(aspect.ratio = 1)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Each point on the figure represents one series and its location on the plot is based on all 48 features. The first principal component is the linear combination of the features which explains the most variation in the data. The second principal component is the linear combination that explains the next most variation in the data, while being uncorrelated with the first principal component and so on. 
+
+This figure reveals a few things about the tourism data. 
+- The holiday series behave quite differently from the rest of the series 
+- some of the time series are anomalous
+- The second principal component does a good job separating the holiday series from the rest 
+
+There are 3 series which stand out, which we can identify as follows:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+outliers <- pcs %>%
+    filter(.fittedPC1 > 10.5) %>%
+    select(Region, State, Purpose, .fittedPC1, .fittedPC2)
+
+outliers %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Region                 | State             | Purpose  | .fittedPC1 | .fittedPC2 |
+|------------------------+-------------------+----------+------------+------------|
+| Australia's North West | Western Australia | Business |       14.6 |      -10.6 |
+| Australia's South West | Western Australia | Holiday  |       11.0 |        1.4 |
+| Melbourne              | Victoria          | Holiday  |       12.7 |      -10.1 |
+| South Coast            | New South Wales   | Holiday  |       11.3 |        9.7 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+outliers %>%
+    left_join(tourism, by = c("State",
+                              "Region",
+                              "Purpose")) %>%
+    mutate(Series = glue::glue("{State}",
+                               "{Region}",
+                               "{Purpose}",
+                               .sep = "\n\n")) %>%
+    ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(Series ~ ., scales = "free") +
+    ggtitle("Outlying Time Series in PC Space")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
