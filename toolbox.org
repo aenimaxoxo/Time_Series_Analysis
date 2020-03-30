@@ -608,7 +608,111 @@ The percentage error is given by p_t = 100 * e_t / y_t. Percentage errors have t
 
 The most commonly used measure is:
 
-
 #+DOWNLOADED: /tmp/screenshot.png @ 2020-03-27 22:38:57
 [[file:The Forecaster's Toolbox/screenshot_2020-03-27_22-38-57.png]]
+
+Measures based on percentage errors have the disadvantage of being infinite or undefined if y_t = 0 for any t in the period of interest, and having extreme values if any y_t is close to 0.
+
+Another problem is that percentage errors assume the unit of measurement has a meaningful zero. For example, a percentage error makes no sense when measuring the accuracy of temperature forecasts on either the Fahrenheit or Celsius scales, because temperature has an arbitrary zero point. 
+
+They also have the disadvantage that they put a heavier penalty on negative errors than on positive errors. This observation lead to the so called symmetric MAPE (sMAPE). 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-28 20:49:07
+[[file:The Forecaster's Toolbox/screenshot_2020-03-28_20-49-07.png]]
+
+*** Scaled Errors 
+
+Scaled errors were proposed as an alternative to using percentage errors when comparing forecast accuracy across series with different units. They proposed scaling errors based on the training MAE from a simple forecast method. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-28 20:51:21
+[[file:The Forecaster's Toolbox/screenshot_2020-03-28_20-51-21.png]]
+
+
+*** Examples 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+recent_production <- aus_production %>%
+    filter(year(Quarter) >= 1992)
+
+beer_train <- recent_production %>%
+    filter(year(Quarter) <= 2007)
+
+beer_fit <- beer_train %>%
+    model(Mean = MEAN(Beer),
+          Naive = NAIVE(Beer),
+          Snaive = SNAIVE(Beer),
+          Drift = RW(Beer ~ drift()))
+
+beer_fc <- beer_fit %>%
+    forecast(h = 10)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+beer_fc %>%
+    autoplot(filter(aus_production,
+                    year(Quarter) >= 1992),
+             level = NULL) +
+    xlab("Year") + ylab("Megalitres") +
+    ggtitle("Forecasts for Quarterly Beer Production") +
+    guides(color = guide_legend(title = "Forecast"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+accuracy(beer_fc, recent_production)
+#+END_SRC
+
+#+RESULTS:
+| .model | .type |    ME | RMSE |  MAE |   MPE | MAPE | MASE | ACF1 |
+|--------+-------+-------+------+------+-------+------+------+------|
+| Drift  | Test  | -54.0 | 64.9 | 58.9 | -13.6 | 14.6 |  4.1 | -0.1 |
+| Mean   | Test  | -13.8 | 38.4 | 34.8 |  -4.0 |  8.3 |  2.4 | -0.1 |
+| Naive  | Test  | -51.4 | 62.7 | 57.4 | -13.0 | 14.2 |  4.0 | -0.1 |
+| Snaive | Test  |   5.2 | 14.3 | 13.4 |   1.1 |  3.2 |  0.9 |  0.1 |
+
+In this case, all of the results point to the seasonal naive method as the best of these three methods for this data set. 
+
+To take a non seasonal example, consider the google stock price. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_fit <- google_15 %>%
+    model(Mean = MEAN(Close),
+          Naive = NAIVE(Close),
+          Drift = RW(Close ~ drift()))
+
+google_fc <- google_fit %>%
+    forecast(google_16)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+google_fc %>%
+    autoplot(rbind(google_15, google_16),
+             level = NULL) +
+    xlab("Day") + ylab("Closing Price (USD $)") +
+    ggtitle("Google Stock Price (Daily ending 6Dec13)") +
+    guides(color = guide_legend(title = "Forecast"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_fc %>%
+    accuracy(google_stock)
+#+END_SRC
+
+#+RESULTS:
+| .model | Symbol | .type |    ME |  RMSE |   MAE |  MPE | MAPE | MASE | ACF1 |
+|--------+--------+-------+-------+-------+-------+------+------+------+------|
+| Drift  | GOOG   | Test  | -49.8 |  53.1 |  49.8 | -7.0 |  7.0 |  7.8 |  0.6 |
+| Mean   | GOOG   | Test  | 116.9 | 118.0 | 116.9 | 16.2 | 16.2 | 18.4 |  0.5 |
+| Naive  | GOOG   | Test  | -40.4 |  43.4 |  40.4 | -5.7 |  5.7 |  6.4 |  0.5 |
+
+Here, the best method is the naive method regardless of which accuracy measure is used. 
+
+** Time Series Cross Validation 
 
