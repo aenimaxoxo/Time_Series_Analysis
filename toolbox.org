@@ -22,34 +22,6 @@ library(magrittr)
 library(fpp3)
 #+END_SRC
 
-#+RESULTS:
-| x           |
-|-------------|
-| fable       |
-| feasts      |
-| fabletools  |
-| tsibbledata |
-| tsibble     |
-| lubridate   |
-| fpp3        |
-| magrittr    |
-| forcats     |
-| stringr     |
-| dplyr       |
-| purrr       |
-| readr       |
-| tidyr       |
-| tibble      |
-| ggplot2     |
-| tidyverse   |
-| stats       |
-| graphics    |
-| grDevices   |
-| utils       |
-| datasets    |
-| methods     |
-| base        |
-
 
 In this chapter, we discuss some general tools that are useful for many different forecasting situations.
 
@@ -716,3 +688,233 @@ Here, the best method is the naive method regardless of which accuracy measure i
 
 ** Time Series Cross Validation 
 
+A more sophisticated version of training/test sets is time-series cross validation. 
+
+In the procedure below, there are a series of test sets, each consisting of a single observation. 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:15:38
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-15-38.png]]
+
+The forecasting accuracy is computed by averaging over the test sets. This is sometimes known as "evaluation on a rolling forecast origin", because the origin at which the forecast is based rolls forward in time. 
+
+With time-series, one-step forecasts might not be as relevant as multistep forecasts.
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:18:29
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-18-29.png]]
+
+
+In the following example, we compare the accuracy obtained via the time series cross-validation with the residual accuracy. 
+
+Cross-validated: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_15 %>%
+    slice(1:(n() - 1)) %>%
+    stretch_tsibble(.init = 3,
+                    .step = 1) -> google_15_tr
+
+google_15_tr %>%
+    model(RW(Close ~ drift())) %>%
+    forecast(h = 1) -> fc
+
+fc %>% accuracy(google_15)
+#+END_SRC
+
+#+RESULTS:
+| .model              | Symbol | .type |  ME | RMSE | MAE | MPE | MAPE | MASE | ACF1 |
+|---------------------+--------+-------+-----+------+-----+-----+------+------+------|
+| RW(Close ~ drift()) | GOOG   | Test  | 0.7 | 11.3 | 7.3 | 0.1 |  1.2 |  1.0 |  0.1 |
+
+and the residual accuracy:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_15 %>% model(RW(Close ~ drift())) %>% accuracy()
+#+END_SRC
+
+#+RESULTS:
+| Symbol | .model              | .type    |                    ME | RMSE | MAE |  MPE | MAPE | MASE | ACF1 |
+|--------+---------------------+----------+-----------------------+------+-----+------+------+------+------|
+| GOOG   | RW(Close ~ drift()) | Training | -2.96664115362864e-14 | 11.1 | 7.2 | -0.0 |  1.2 |  1.0 |  0.1 |
+
+The accuracy measures from the residuals are smallest, as the corresponding forecasts are based on a model fitted to the entire dataset, rather than being true forecasts.
+
+A good way to choose the best forecasting model is to find the model with the smallest RMSE computed using time series cross validation. 
+
+*** Example: Forecast Horizon Accuracy with Cross-Validation 
+
+ The google_15 subset of the gafa_stock data includes daily closing stock price of google from NASDAQ for all the trading days in 2015. 
+
+ The code below evaluates the forecasting performance of 1 to 8 step ahead drift forecasts. 
+
+ #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+google_15 %>%
+    slice(1:(n() - 8)) %>%
+    stretch_tsibble(.init = 3,
+                    .step = 1) -> google_15_tr
+
+google_15_tr %>% 
+    model(RW(Close ~ drift())) %>%
+    forecast(h = 8) %>%
+    group_by(.id) %>%
+    mutate(h = row_number()) %>%
+    ungroup() -> fc
+ #+END_SRC
+
+ #+BEGIN_SRC R :file plot.svg :results graphics file
+fc %>%
+    accuracy(google_15, by = "h") %>%
+    ggplot(aes(x = h, y = RMSE)) +
+    geom_point()
+ #+END_SRC
+
+ #+RESULTS:
+ [[file:plot.svg]]
+
+ As expected, RMSE increases as the timespan of the forecast increases. 
+
+** Forecasting Using Transformations 
+
+When forecasting a model with transformations, we first produce forecasts of the transformed data, then we reverse the transformation to obtain forecasts on the original scale. 
+
+The reverse Box-Cox transform is given by: 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:30:41
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-30-41.png]]
+
+The fable package handles this automatically. 
+
+*** Prediction Intervals with Transformations 
+
+If a transformation has been used, then the prediction interval is first computed on the transformed scale, then the end points are back-transformed to give a prediction on the original scale. This is done automatically for fable models, provided a transformation has been used. 
+
+Transformations sometimes make little difference to point forecasts but have a large effect on prediction intervals. 
+
+*** Forecasting with Constraints 
+
+A useful transformation is the log, which keeps forecasts on a positive scale. 
+
+Another useful transform is the scaled logit:
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:33:45
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-33-45.png]]
+
+where a,b are the intervals that the transformation ensures that the forecasted values are within. 
+
+To use this when modeling, we can create a new transformation with the accompanying function:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+scaled_logit <- new_transformation(
+    transformation = function(x, lower = 0, upper = 1) {
+        log((x - lower) / (upper - x))
+    },
+    inverse = function(x, lower = 0, upper = 1) {
+        (upper - lower) * exp(x) / (1 + exp(x)) + lower
+    }
+)
+#+END_SRC
+
+*** Bias Adjustments 
+
+One issue with transformations like the Box-Cox is that the back-transformed point forecast will not be the mean of the forecast distribution. In fact, it will usually be the median of the distribution.
+
+This is usually acceptable, but sometimes we need the mean forecast. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:38:37
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-38-37.png]]
+
+The difference between that and the earlier equation: 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:39:25
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-39-25.png]]
+
+is the bias. When we use the mean, rather than the median, we say that the point forecasts have been bias-adjusted. 
+
+To see how much difference this makes:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+eggs <- as_tsibble(fma::eggs)
+
+fit <- eggs %>% model(RW(log(value) ~ drift()))
+
+fc <- fit %>%
+    forecast(h = 50) %>%
+    mutate(Forecast = "Bias Adjusted")
+
+fc_biased <- fit %>%
+    forecast(h = 50, bias_adjust = FALSE) %>%
+    mutate(Forecast = "Simple Back Transformation")
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+eggs %>%
+    autoplot(value) +
+    autolayer(fc_biased, level = 80) +
+    autolayer(fc, color = "red", level = NULL)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Forecasts of egg prices using a random walk with drift applied to the logged data. The bias-adjusted mean forecasts are shown in red, while the median forecasts are shown in blue. 
+
+** Forecasting with Decomposition 
+
+Time series decompositions can be a useful step in producing forecasts. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-03-30 21:58:56
+[[file:The Forecaster's Toolbox/screenshot_2020-03-30_21-58-56.png]]
+
+To forecast a decomposed series, we forecast the seasonal component and the seasonally adjusted component separately. It is usually assumed that the seasonal component is unchanging, or at least changing extremely slowly, so it is forecast by taking the last year of the estimated component. 
+
+In other words, a seasonal naive method is used for the seasonal component. 
+
+To forecast the seasonally adjusted component, we can fit any non-seasonal method.
+
+*** Example: Employment in the US Retail Sector 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+us_retail_employment <- us_employment %>%
+    filter(year(Month) >= 1990,
+           Title == "Retail Trade")
+
+dcmp <- us_retail_employment %>%
+    model(STL(Employed ~ trend(window = 7),
+              robust = TRUE)) %>%
+    components() %>%
+    select(-.model)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+dcmp %>%
+    model(NAIVE(season_adjust)) %>%
+    forecast() %>%
+    autoplot(dcmp) +
+    ylab("New Orders Index") +
+    ggtitle("Naive Forecasts of Seasonally Adjusted Data")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+This figure shows naive forecasts of the seasonally adjusted electrical equipment orders data. These are then "reseasonalized" by adding in the seasonal naive forecasts of the seasonal component. 
+
+This is made easy with the decomposition_model() function. This allows you to compute forecasts via additive decomposition, using other model functions to forecast each of the decomposition's components. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_retail_employment %>%
+    model(stlf = decomposition_model(
+              STL(Employed ~ trend(window = 7),
+                  robust = TRUE),
+              NAIVE(season_adjust))) %>%
+    forecast() %>%
+    autoplot(us_retail_employment)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Seasonal components will automatically be forecasted with SNAIVE if a different model isn't specified. The function also does reseasonalizing for you as well. 
