@@ -21,3 +21,79 @@ library(tidyverse)
 library(magrittr)
 library(fpp3)
 #+END_SRC
+
+The accuracy of judgemental forecasting improves when the forecaster has:
+
+1. Important domain knowledge
+2. more timely, up to date information 
+
+There are 3 general settings in which judgemental forecasting is used:
+
+1. There are no available data, so that statistical methods are not applicable
+2. data are available, statistical forecasts are generated, and these are then adjusted
+3. data are available, statistical and judgemental forecasts are generated and these are then combined.
+
+
+** Key Principles 
+ 
+*** Set the forecasting task clearly and concisely 
+    avoid things like emotive terms and vague expressions
+*** Implement a systematic approach
+    You can use checklists of categories of information which are relevant to the forecasting task
+*** Document and justify 
+    formalizing and documenting the decision rules and assumptions implemented in the systematic approach can promote consistency
+*** Systematically evaluate forecasts 
+    keep records of forecasts and use them to obtain feedback when the corresponding observations become available
+*** Segregate forecasters and users 
+    forecast accuracy may be impeded if the forecasting task is carried out by users of the forecasts, 
+    such as those responsible for implementing plans of action about which the forecast is concerned
+
+** The Delphi Method 
+
+
+The Delphi method relies on the key assumption that forecasts from a group are generally more accurate than those from individuals. The aim of the Delphi method is to construct concensus forecasts from a group of experts in a structured iterative manner. A facilitator is appointed in order to implement and manage the process. 
+
+The Delphi method generally consists of the following steps: 
+
+1. A panel of experts is assembled
+2. Forecasting tasks / challenges are set and distributed to the experts
+3. Experts return initial forecasts and justifications. These are compiled and summarized in order to provide feedback
+4. Feedback is provided to the experts, who now review their forecasts in light of the feedback. This step may be iterated until a satisfactory level of concensus is achieved.
+5. Final forecasts are constructed by aggregating the expert's forecasts.
+
+*** Experts and Anonymity 
+
+The usual suggestion is between 5 and 20 experts with diverse expertise. Experts submit forecasts and also provide detailed qualitative justifications for these. 
+
+A key feature is that the participating experts remain anonymous at all times. This is to avoid political and social pressures in their forecasts. Furthermore, all the experts are given an equal say and all are held accountable for their forecasts. 
+
+*** Setting the forecasting task 
+
+It may be useful to conduct a preliminary round of information gathering from the experts before setting the forecasting tasks. 
+
+*** Feedback 
+
+Feedback to the experts should include summary statistics of the forecasts and outlines of qualitative justifications. Numerical data summaries and graphical representations can be used to summarize the expert's forecasts. 
+
+*** Iteration 
+
+The process of experts submitting forecasts, receiving feedback, and reviewing their forecasts in light of feedback is repeated until a satisfactory level of concensus between the experts is reached. This does not mean complete convergence in the forecast value; it means the variability of the responses has decreased to a satisfactory level. Usually two or three rounds are sufficient. 
+
+*** Final Forecasts 
+
+The final forecasts are usually constructed by giving equal weight to all of the expert's forecasts. The facilitator should keep in mind the possibility of extreme values distorting the final forecast. 
+
+
+*** Limitations and Variations 
+
+This method can be time consuming. A variation of the delphi method is the estimate-talk-estimate method, where experts can interact between iterations, although the forecast submissions can remain anonymous. A disadvantage of this alternative is that the loudest person can exert undue influence. 
+
+
+
+*** The Facilitator
+
+The facilitator is largely responsible for the design and administration of the Delphi process. They are also responsible for providing feedback to the experts and generating the final forecasts. They are also responsible for disseminating important information. The efficiency and effectiveness of the facilitator can dramatically increase the probability of a successful Delphi method in a judgemental forecasting setting. 
+
+** Forecasting by Analogy 
+
+
