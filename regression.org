@@ -1,0 +1,255 @@
+* Time Series Regression Models 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(fpp3)
+#+END_SRC
+
+** The Linear Model 
+*** Simple Linear Regression 
+
+In the simplest case, a regression model allows for a linear relationship between the forecast variable and a single predictor variable x.
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-01 21:26:43
+[[file:Time Series Regression Models/screenshot_2020-04-01_21-26-43.png]]
+
+*** Example: US Consumption Expenditure 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_change %>%
+    ggplot(aes(x = Quarter)) +
+    geom_line(aes(y = Consumption, color = "Consumption")) +
+    geom_line(aes(y = Income, color = "Income")) +
+    ylab("% Change") + xlab("Year") +
+    guides(color = guide_legend(title = "Series"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+This plot shows the percentage changes in personal consumption expenditure and personal income for the US. 
+
+We can fit a scatter plot of consumption expenditure vs personal income change 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_change %>%
+    ggplot(aes(x = Income, y = Consumption)) +
+    ylab("Consumption (Quarterly % Change)") +
+    xlab("Income (Quarterly % Change)") +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+The equation for a time series linear model is estimated in R with the TSLM function: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+us_change %>%
+    model(TSLM(Consumption ~ Income)) %>%
+    report() %>%
+    tidy()
+#+END_SRC
+
+#+RESULTS:
+| .model                     | term        | estimate | std.error | statistic |              p.value |
+|----------------------------+-------------+----------+-----------+-----------+----------------------|
+| TSLM(Consumption ~ Income) | (Intercept) |      0.5 |       0.1 |      10.1 | 1.62968143996723e-19 |
+| TSLM(Consumption ~ Income) | Income      |      0.3 |       0.0 |       5.8 | 2.40216974893503e-08 |
+
+We will see how TSLM fits the coefficients in Section 7.2 
+
+The positive slope indicates a positive relationship between income and consumption. 
+
+*** Multiple Linear Regression 
+
+The general form of a multiple regression model is 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-01 21:35:31
+[[file:Time Series Regression Models/screenshot_2020-04-01_21-35-31.png]]
+
+The coefficients measure the marginal effects of the predictor variables. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_change %>%
+    GGally::ggpairs()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Assumptions 
+
+When we use a linear regression model, we are implicitly making assumptions about the variables:
+
+- they have mean of 0, otherwise the forecasts will be systematically biased
+- they are not autocorrelated, otherwise forecasts will be inefficient
+- they are unrelated to the predictor variables
+
+It is also helpful that 
+- errors are normally distributed with constant variance to produce prediction intervals
+- each predictor x is not a random variable. This is because most of the data that we see is observational
+
+** Least Squares Estimation 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-01 21:44:34
+[[file:Time Series Regression Models/screenshot_2020-04-01_21-44-34.png]]
+
+*** Example: US Consumption Expenditure 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit.consmr <- us_change %>%
+    model(tslm = TSLM(Consumption ~ Income + Production + Unemployment + Savings))
+
+fit.consmr %>% report() %>% tidy()
+#+END_SRC
+
+#+RESULTS:
+| .model | term         | estimate | std.error | statistic |              p.value |
+|--------+--------------+----------+-----------+-----------+----------------------|
+| tslm   | (Intercept)  |      0.3 |       0.0 |       7.3 | 5.71285129942489e-12 |
+| tslm   | Income       |      0.7 |       0.0 |      18.5 |  1.6478925265192e-44 |
+| tslm   | Production   |      0.0 |       0.0 |       2.0 |                  0.0 |
+| tslm   | Unemployment |     -0.2 |       0.1 |      -1.8 |                  0.1 |
+| tslm   | Savings      |     -0.1 |       0.0 |     -18.1 | 2.02828218945875e-43 |
+
+*** Fitted Values 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit.consmr %>%
+    augment() %>%
+    ggplot(aes(x = Quarter)) +
+    geom_line(aes(y = Consumption, color = "Data")) +
+    geom_line(aes(y = .fitted, color = "Fitted")) +
+    xlab("Year") + ylab(NULL) +
+    ggtitle("Percent Change in US Consumption Expenditure") +
+    guides(color = guide_legend(title = NULL))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit.consmr %>%
+    augment() %>%
+    ggplot(aes(x = Consumption, y = .fitted)) +
+    geom_point() +
+    ylab("Fitted (Predicted Values)") +
+    xlab("Data (Actual Values)") +
+    ggtitle("Percent Change in US Consumption Expenditure") +
+    geom_abline(intercept = 0, slope = 1) +
+    geom_smooth(method = "lm", se = FALSE, lty = 2)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Evaluating the Regression Model 
+
+After selecting the regression variables and fitting a regression model, it is necessary to plot the residuals to check that the assumptions of the model have been satisfied. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit.consmr %>%
+    gg_tsresiduals()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We want to look out for 
+
+- patterns in the plot of residuals
+- non normal distributions in the histogram
+- lag values outside of the boundaries of our acf plot
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit.consmr %>%
+    augment() %>%
+    features(.resid, ljung_box, lag = 10, dof = 5)
+#+END_SRC
+
+#+RESULTS:
+| .model | lb_stat | lb_pvalue |
+|--------+---------+-----------|
+| tslm   |    18.9 |       0.0 |
+
+*** Residual Plots Against Predictors 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+library(patchwork)
+df <- left_join(us_change,
+                residuals(fit.consmr),
+                by = "Quarter")
+
+c("Income", "Production", "Savings", "Unemployment") %>%
+    map(., ~ ggplot(df, aes(x = !!sym(.x), y = .resid)) +
+               geom_point() +
+               ylab("Residuals")) -> p
+
+(p[[1]] | p[[2]]) / (p[[3]] | p[[4]])                  
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Residuals Against Fitted Values 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit.consmr %>%
+    augment() %>%
+    ggplot(aes(x = .fitted, y = .resid)) +
+    geom_point() +
+    labs(x = "Fitted", y = "Residuals")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Spurious Regression 
+
+More often than not, time series data are non-stationary; that is, the values of the time series do not fluctuate around a constant mean or with a constant variance. 
+
+Regressing non-stationary time series can lead to spurious regressions. High R^2 and high residual autocorrelation can be signs of spurious regression. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit <- aus_airpassengers %>%
+    left_join(guinea_rice, by = "Year") %>%
+    model(TSLM(Passengers ~ Production))
+
+fit %>% report() %>% glance()
+#+END_SRC
+
+#+RESULTS:
+| .model                        | r_squared | adj_r_squared | sigma2 | statistic |              p_value |  df | log_lik |   AIC |  AICc |   BIC |   CV | deviance | df.residual | rank |
+|-------------------------------+-----------+---------------+--------+-----------+----------------------+-----+---------+-------+-------+-------+------+----------+-------------+------|
+| TSLM(Passengers ~ Production) |       1.0 |           1.0 |   10.5 |     908.1 | 4.08429912736167e-29 | 2.0 |  -107.9 | 102.7 | 103.3 | 107.9 | 11.5 |    419.6 |        40.0 |  2.0 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit %>% gg_tsresiduals()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** 

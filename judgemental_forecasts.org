@@ -96,4 +96,21 @@ The facilitator is largely responsible for the design and administration of the 
 
 ** Forecasting by Analogy 
 
+Even thinking and discussing analogous products or situations can generate useful information. 
+
+In general, when judging by analogy we should take care to 
+
+- compare to multiple analogies rather than a single analogy
+- compare based on many attributes 
+
+
+*** A structured analogy 
+
+This concept is similar to that of a Delphi, but the forecasting task is completed by considering analogies. First a facilitator is appointed. Then the structured approach involves the following steps: 
+
+1. A panel of experts who are likely to have experience with analogous situations are assembled
+2. Tasks/challenges are set and given to experts
+3. Experts identify and describe as many analogies as they can and generate forecasts based on each analogy
+4. Experts list similarities and differences of each analogy to the target situation, then rate the similatiry of each analogy to the target situation on a scale
+5. Forecasts are derived by the facilitator using a set rule. This can be a weighted average 
 
