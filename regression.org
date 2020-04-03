@@ -22,6 +22,34 @@ library(magrittr)
 library(fpp3)
 #+END_SRC
 
+#+RESULTS:
+| x           |
+|-------------|
+| fable       |
+| feasts      |
+| fabletools  |
+| tsibbledata |
+| tsibble     |
+| lubridate   |
+| fpp3        |
+| magrittr    |
+| forcats     |
+| stringr     |
+| dplyr       |
+| purrr       |
+| readr       |
+| tidyr       |
+| tibble      |
+| ggplot2     |
+| tidyverse   |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
 ** The Linear Model 
 *** Simple Linear Regression 
 
@@ -252,4 +280,175 @@ fit %>% gg_tsresiduals()
 #+RESULTS:
 [[file:plot.svg]]
 
-** 
+** Some Useful Predictors 
+
+*** Trend 
+
+It is common for a time series to be trending. A linear trend can be modelled by simply using x_1,t = t as a predictor,
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-02 21:25:21
+[[file:Time Series Regression Models/screenshot_2020-04-02_21-25-21.png]]
+
+where t = 1,...,T 
+
+A trend can be specified in the TSLM() function with the trend() special
+
+*** Dummy Variables 
+
+These are often used to add categorical variables to our model. We can also use it to specify things like events. TSLM() automatically handles categorical variables if a factor is specified as a variable. 
+
+*** Seasonal Dummy Variables 
+
+The interpretation of each of the coefficients associated with the dummy variable is that it is a measure of the effect of that category relative to the omitted category. 
+
+*** Example: Australian Quarterly Beer Production 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+recent_production <- aus_production %>%
+    filter(year(Quarter) >= 1992)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+recent_production %>%
+    autoplot(Beer) +
+    labs(x = "Year", y = "Megalitres")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+We wish to forecast the value of future beer production. We can model this using a regression model with a linear trend and quarterly dummy variables. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-02 21:30:09
+[[file:Time Series Regression Models/screenshot_2020-04-02_21-30-09.png]]
+
+where d_n is the quarter with the first quarter omitted.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit_beer <- recent_production %>%
+    model(TSLM(Beer ~ trend() + season()))
+
+fit_beer %>% report() %>% tidy()
+#+END_SRC
+
+#+RESULTS:
+| .model                          | term          | estimate | std.error | statistic |              p.value |
+|---------------------------------+---------------+----------+-----------+-----------+----------------------|
+| TSLM(Beer ~ trend() + season()) | (Intercept)   |    441.8 |       3.7 |     118.3 | 2.01502266401021e-81 |
+| TSLM(Beer ~ trend() + season()) | trend()       |     -0.3 |       0.1 |      -5.1 | 2.72965382379399e-06 |
+| TSLM(Beer ~ trend() + season()) | season()year2 |    -34.7 |       4.0 |      -8.7 | 9.10308139144671e-13 |
+| TSLM(Beer ~ trend() + season()) | season()year3 |    -17.8 |       4.0 |      -4.4 | 3.44967454483389e-05 |
+| TSLM(Beer ~ trend() + season()) | season()year4 |     72.8 |       4.0 |      18.1 | 6.68309360011882e-28 |
+
+There is an average downward trend of -0.34 megalitres per quarter. 
+On average, the second quarter has production of 34 litres less than the first quarter, the third quarter has 17.8 quarters less than the first and the fourth quarter has an average of 72.8 litres more than the first quarter. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit_beer %>%
+    augment() %>%
+    ggplot(aes(x = Quarter)) +
+    geom_line(aes(y = Beer, color = "Data")) +
+    geom_line(aes(y = .fitted, color = "Fitted")) +
+    labs(x = "Year", y = "Megalitres", title = "Quarterly Beer Production")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fit_beer %>%
+    augment() %>%
+    ggplot(aes(x = Beer, y = .fitted,
+               color = factor(quarter(Quarter)))) +
+    geom_point() +
+    ylab("Fitted") + xlab("Actual Values") +
+    ggtitle("Quarterly Beer Production") +
+    scale_color_brewer(palette = "Dark2",
+                       name = "Quarter") +
+    geom_abline(intercept = 0,
+                slope = 1)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Intervention Variables 
+
+It is often necessary to model interventions that may have affected the variable to be forecast. 
+
+When the effect lasts for only one period, we use a "spike" variable. This is a dummy variable that takes value one in the period of the intervention and zero elsewhere. A spike variable is equivalent to a dummy variable for handling an outlier. 
+
+Other interventions have an immediate and permanent effect. If an intervention causes a level shift, then we use a step variable. A step variable takes value zero before the intervention and one from the time of the intervention onwards. 
+
+*** Fourier Series 
+
+An alternative to using seasonal dummy variables, especially for long seasonal periods, is to use Fourier terms. 
+
+Fourier showed that a series of sine and cosine terms of the right frequencies can approximate any periodic function. 
+
+With Fourier terms, we often need fewer predictors than with dummy variables, especially when the seasonal periods are many. This makes them useful for things like weekly data, where m =~ 52. On the flipside, they are not too useful for short seasonal periods, like quarterly data. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fourier_beer <- recent_production %>%
+    model(TSLM(Beer ~ trend() + fourier(K = 2)))
+
+report(fourier_beer) %>% tidy()
+#+END_SRC
+
+#+RESULTS:
+| .model                                | term               | estimate | std.error | statistic |              p.value |
+|---------------------------------------+--------------------+----------+-----------+-----------+----------------------|
+| TSLM(Beer ~ trend() + fourier(K = 2)) | (Intercept)        |    446.9 |       2.9 |     155.5 | 1.39117271994188e-89 |
+| TSLM(Beer ~ trend() + fourier(K = 2)) | trend()            |     -0.3 |       0.1 |      -5.1 | 2.72965382379399e-06 |
+| TSLM(Beer ~ trend() + fourier(K = 2)) | fourier(K = 2)C1_4 |      8.9 |       2.0 |       4.4 | 3.44967454483378e-05 |
+| TSLM(Beer ~ trend() + fourier(K = 2)) | fourier(K = 2)S1_4 |    -53.7 |       2.0 |     -26.7 | 4.10241108007111e-38 |
+| TSLM(Beer ~ trend() + fourier(K = 2)) | fourier(K = 2)C2_4 |    -14.0 |       1.4 |      -9.8 | 9.25551589762455e-15 |
+
+
+The K argument to fourier() determines how many pairs of sin and cos terms to include. The maximum is k/2, where m is the seasonal period. 
+
+A regression model containing Fourier terms is often called a harmonic regression because the successive Fourier terms represent harmonics of the first two Fourier terms. 
+
+
+** Selecting Predictors 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit.consmr %>% glance() %>% select(adj_r_squared,
+                                   CV,
+                                   AIC,
+                                   AICc,
+                                   BIC)
+#+END_SRC
+
+#+RESULTS:
+| adj_r_squared |  CV |    AIC |   AICc |    BIC |
+|---------------+-----+--------+--------+--------|
+|           0.8 | 0.1 | -456.6 | -456.1 | -436.9 |
+
+For CV, AIC, AICc, BIC we seek the term with the lowest value. For Adjusted R Squared, we seek the highest value. 
+
+*** Adjusted R^2 
+
+Minimizing the sum of squared errors is equivalent to maximizing R^2 and will always choose the model with the most variables. 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-02 21:51:01
+[[file:Time Series Regression Models/screenshot_2020-04-02_21-51-01.png]]
+
+*** Cross Validation 
+
+This was covered in 5.8 
+
+*** Akaike's Information Criterion 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-02 21:52:59
+[[file:Time Series Regression Models/screenshot_2020-04-02_21-52-59.png]]
+
+Where T is the number of observations used for estimation and k is the number of predictors in the model. 
+
+The k + 2 comes from the parameters in the model: the k coefficients for the predictors, the intercept and the variance of the residuals. 
+
+The model with the minimum value of AIC is often the best model for forecasting. For large values of T, minimizing the AIC is equivalent to minimizing the CV value. 
+
