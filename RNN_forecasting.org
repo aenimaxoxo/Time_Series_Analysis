@@ -1,0 +1,76 @@
+* Time Series Forecasting with Recurrent Neural Networks 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+#+END_SRC
+
+** Download Data 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+jena <- read_csv("jena_climate/jena_climate_2009_2016.csv")
+
+jena %<>% janitor::clean_names()
+
+jena %>% glimpse()
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+jena %>%
+    ggplot(aes(x = 1:nrow(.), y = t_deg_c)) +
+    geom_line()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Here is the first 10 days of temperature data. The data is recorded every 10 minutes, giving 144 data points per day. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+jena %>%
+    .[1:1440, ] %>%
+    ggplot(aes(x = 1:1440, y = t_deg_c)) +
+    geom_line()
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+lookback: 1440 observations will go back 10 days
+steps: 6 observations will be sampled at one data point per hour 
+delay: 144 targets will be 24 hours in the future 
+
+We must:
+- preprocess the data to a format that the neural network can ingest. We also need to normalize the data since it is all on different scales 
+- write a generator function that takes the current array of float data and yields batches of data from the recent past, along with a target temperature in the future.
+
+
+** Data Preprocessing 
+
+First we will convert the R data frame into a matrix of floating point values. The first column included a text timestamp so we can discard it. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+jena <- data.matrix(jena[, -1])
+
+# normalize the data 
+train_data <- jena[1:200000,]
+
+train_data %<>%
+    scale()
+#+END_SRC
