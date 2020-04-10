@@ -452,3 +452,216 @@ The k + 2 comes from the parameters in the model: the k coefficients for the pre
 
 The model with the minimum value of AIC is often the best model for forecasting. For large values of T, minimizing the AIC is equivalent to minimizing the CV value. 
 
+*** Corrected Akaike's Information Criterion
+
+For small values of T, the AIC tends to select too many predictors. As a result, a bis-corrected version has been developed:
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-09 19:34:51
+[[file:Time Series Regression Models/screenshot_2020-04-09_19-34-51.png]] 
+
+*** Schwarz's Bayesian Information Criterion 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-09 19:35:44
+[[file:Time Series Regression Models/screenshot_2020-04-09_19-35-44.png]]
+
+The model chosen by the BIC is either the same as that chosen by the AIC or one with fewer terms. The BIC penalizes the number of parameters more heavily than the AIC. 
+
+*** Which measure should be used? 
+
+The authors reccommend that one of the AICc, AIC, or CV statistics should be used. If the value of T is large enough, they will all lead to the same model. 
+
+** Forecasting with Regression 
+
+*** Ex-ante vs. Ex-post Forecasts 
+
+- Ex-ante forecasts are those that are made using only the information that is available in advance. These are genuine forecasts. In order to generate these forecasts, the model requires forecasts for the predictors. 
+
+- Ex-post forecasts are those that are made using later information on the predictors. These are not genuine forecasts, but they are useful for studying the behavior of forecasting models. These forecasts can assume knowledge of the predictor values, but should not assume knowledge of the data that are to be forecast. 
+
+A comparative evaluation of ex-ante forecasts and ex-post forecasts can help to separate out the sources of forecast uncertainty. This will show whether forecast errors have arisen due to poor forecasts of the predictor or due to a poor forecasting model. 
+
+*** Example: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aus_production %>%
+    filter(year(Quarter) >= 1992) -> recent_production
+
+recent_production %>%
+    model(TSLM(Beer ~ trend() + season())) -> fit_beer
+
+fit_beer %>%
+    forecast() -> fc_beer 
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fc_beer %>%
+    autoplot(recent_production) +
+    ggtitle("Forecasts of Beer Production Using Regression") +
+    xlab("Year") + ylab("Megalitres")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Scenario Based Forecasting
+ 
+In this setting, the forecaster assumes possible scenarios for the predictor variables that are of interest. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# fit all the different scenarios
+fit_cons_best <- us_change %>%
+    model(lm = TSLM(Consumption ~ Income + Savings + Unemployment))
+
+up_future <- new_data(us_change, 4) %>%
+    mutate(Income = 1,
+           Savings = 0.5,
+           Unemployment = 0)
+
+down_future <- new_data(us_change, 4) %>%
+    mutate(Income = -1,
+           Savings = -0.5,
+           Unemployment = 0)
+
+fc_up <- forecast(fit_cons_best,
+                  new_data = up_future) %>% 
+    mutate(Scenario = "Increase") %>%
+    as_fable(response = Consumption,
+             key = Scenario)
+
+
+fc_down <- forecast(fit_cons_best,
+                    new_data = down_future) %>% 
+    mutate(Scenario = "Decrease") %>%
+    as_fable(response = Consumption,
+             key = Scenario)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_change %>%
+    autoplot(Consumption) +
+    autolayer(rbind(fc_up, fc_down)) +
+    ylab("% Change in US Consumption")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Building a Predictive Regression Model 
+
+A major challenge is that, in order to build an ex-ante forecast, the model requires future values of each of the predictor variables. 
+
+If scenario-based forecasting is the main interest, then these models are extremely useful. If ex-ante models are the main focus, obtaining forecasts of the predictors can be challenging (in many cases generating the forecasts for the predictors can be more challenging than forecasting directly the forecast variable without using predictors).
+
+An alternative formulation is to use lagged variables as predictors: 
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-09 19:57:51
+[[file:Time Series Regression Models/screenshot_2020-04-09_19-57-51.png]]
+
+Assuming that we are interested in generating an h-step ahead forecast, where h = 1,2,...
+
+*** Prediction Intervals 
+
+A 95% prediction interval associated with the forecast can be given by 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-09 20:00:04
+[[file:Time Series Regression Models/screenshot_2020-04-09_20-00-04.png]]
+
+Where T is the total number of observations, xbar is the mean of the observed x values, and s_x is the standard deviation of the observed x values, and sigma_hat is the standard error of the regression. 
+
+*** Example
+ 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit_cons <- us_change %>%
+    model(TSLM(Consumption ~ Income))
+
+new_cons <- new_data(us_change, n = 4) %>%
+    mutate(Income = mean(us_change$Income),
+           Scenario = "Average Increase")
+
+fcast_ave <- forecast(fit_cons, new_cons) %>%
+    as_fable(response = Consumption,
+             key = Scenario)
+
+new_cons <- new_data(us_change, n = 4) %>%
+    mutate(Income = 12,
+           Scenario = "Extreme Increase")
+
+fcast_up <- forecast(fit_cons, new_cons) %>%
+    as_fable(response = Consumption,
+             key = Scenario)
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+us_change %>%
+    autoplot(Consumption) +
+    autolayer(rbind(fcast_ave,
+                    fcast_up)) +
+    ylab("% Change in US Consumption")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Nonlinear Regression 
+
+The simplest way of modeling a nonlinear relationship is to transform the forecast variable y and / or the predictor variable x before estimating a regression model. While this provides a nonlinear functional form, the model is still linear in the parameters.
+
+A log-log functional form is specified as: 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-09 21:42:32
+[[file:Time Series Regression Models/screenshot_2020-04-09_21-42-32.png]]
+
+where beta_1 is the average percentage change in y resulting from a 1% change in x. 
+
+The *log-linear* form is specified by only log-transforming the forecast variable, and the linear-log form is obtained by transforming the predictor. 
+
+*** Forecasting with a nonlinear trend 
+
+The simplest way of fitting a nonlinear trend is using quadratic or higher order trends. This is not recommended though due to difficulties in extrapolation. 
+
+A better approach is to use a piecewise-linear function.
+
+*** Example 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+boston_men <- boston_marathon %>%
+    filter(Event == "Men's open division") %>%
+    mutate(Minutes = as.numeric(Time)/60)
+
+fit_trends <- boston_men %>%
+    model(linear = TSLM(Minutes ~ trend()),
+          exponential = TSLM(log(Minutes) ~ trend()),
+          piecewise = TSLM(Minutes ~ trend(knots = c(1940, 1980))))
+
+fc_trends <- fit_trends %>% forecast(h = 10)
+
+boston_men %>% head()
+#+END_SRC
+
+#+RESULTS:
+| Event               |   Year | Champion            | Country       |     Time | Minutes |
+|---------------------+--------+---------------------+---------------+----------+---------|
+| Men's open division | 1897.0 | John J. McDermott   | United States | 02:55:10 |   175.2 |
+| Men's open division | 1898.0 | Ronald J. MacDonald | Canada        | 02:42:00 |   162.0 |
+| Men's open division | 1899.0 | Lawrence Brignolia  | United States | 02:54:38 |   174.6 |
+| Men's open division | 1900.0 | John P. Caffery     | Canada        | 02:39:44 |   159.7 |
+| Men's open division | 1901.0 | John P. Caffery     | Canada        | 02:29:23 |   149.4 |
+| Men's open division | 1902.0 | Sammy A. Mellor     | United States | 02:43:12 |   163.2 |
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+boston_men %>%
+    autoplot(Minutes) +
+    geom_line(data = fitted(fit_trends),
+              aes(y = .fitted, color = .model)) +
+    autolayer(fc_trends, alpha = 0.5, level = 95) +
+    xlab("Year") + ylab("Winning Times in Minutes") +
+    ggtitle("Boston Marathon") +
+    guides(color = guide_legend(title = "Model"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
