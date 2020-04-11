@@ -1,0 +1,241 @@
+* Recurrent Neural Networks for Time Series: Sunspots
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(glue)
+library(forcats)
+library(lubridate)
+
+# time series 
+library(timetk)
+library(tidyquant)
+library(tibbletime)
+
+# visualization 
+library(cowplot)
+
+# preprocessing
+library(recipes)
+
+# sampling / accuracy 
+library(rsample)
+library(yardstick)
+
+# modeling
+library(keras)
+library(tfruns)
+#+END_SRC
+
+** Data
+
+Our dataset is a ts class (not tidy), so we need to convert it to a tidy data set first using the tk_tbl function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+sun_spots <- datasets::sunspot.month %>%
+    tk_tbl() %>%
+    mutate(index = as_date(index)) %>%
+    as_tbl_time(index = index)
+
+sun_spots %>%
+    head()
+#+END_SRC
+
+#+RESULTS:
+|      index | value |
+|------------+-------|
+| 1749-01-01 |  58.0 |
+| 1749-02-01 |  62.6 |
+| 1749-03-01 |  70.0 |
+| 1749-04-01 |  55.7 |
+| 1749-05-01 |  85.0 |
+| 1749-06-01 |  83.5 |
+
+** Exploratory Data Analysis 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+sun_spots %>%
+    ggplot(aes(x = index, y = value)) +
+    geom_point(color = palette_light()[[1]],
+               alpha = 0.5) +
+    theme_tq() +
+    labs(title = "From 1749 to 2013 (Full Data)") -> p1
+
+sun_spots %>%
+    filter_time("start" ~ "1800") %>% 
+    ggplot(aes(x = index, y = value)) +
+    geom_line(color = palette_light()[[1]],
+              alpha = 0.5) +
+    geom_point(color = palette_light()[[1]]) +
+    geom_smooth(method = "loess", span = 0.2, se = FALSE) +
+    theme_tq() +
+    labs(title = "From 1749 to 1759 (Zoomed In To Show Cycle)",
+         caption = "datasets::sunspot.month") -> p2
+
+ggdraw() +
+    draw_label("Sunspots",
+               size = 18,
+               fontface = "bold",
+               color = palette_light()[[1]]) -> p_title
+
+plot_grid(p_title, p1, p2, ncol = 1, rel_heights = c(0.1, 1, 1))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** Backtesting: Time Series Cross Validation
+
+The backtesting strategy is this:
+
+- use 100 years for the training set
+- use 50 years for the validation set
+- select a skip span of about 22 years to approximately evenly distribute the samples into 6 sets that span the entire 265 year history of the sunspots data
+- set cumulative to FALSE to allow the origin to shift which ensures that models on more recent data are not given an unfair advantage 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+periods_train <- 12 * 100
+periods_test <- 12 * 50
+skip_span <- 12 * 22 - 1
+
+(rolling_origin_resamples <- rolling_origin(
+    sun_spots,
+    initial = periods_train,
+    assess = periods_test,
+    cumulative = FALSE,
+    skip = skip_span))
+#+END_SRC
+
+** Visualizing the Backtesting Strategy
+
+We can use two custom functions: 
+
+- plot_split() plots one of the resampling splits using ggplot
+- plot_sampling_plan() scales the plot_split() function to all of the samples using purrr and cowplot 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+plot_split <- function(split,
+                       expand_y_axis = TRUE, alpha = 1, size = 1, base_size = 14) {
+    # manipulate data
+    train_tbl <- training(split) %>%
+        add_column(key = "training")
+
+    test_tbl <- testing(split) %>%
+        add_column(key = "testing")
+
+    data_manipulated <- bind_rows(train_tbl, test_tbl) %>%
+        as_tbl_time(index = index) %>%
+        mutate(key = fct_relevel(key, "training", "testing"))
+
+    # collect attributes 
+    train_time_summary <- test_tbl %>%
+        tk_index() %>%
+        tk_get_timeseries_summary()
+
+    test_time_summary <- test_tbl %>%
+        tk_index() %>%
+        tk_get_timeseries_summary()
+
+    # visualize 
+    gg <- data_manipulated %>%
+        ggplot(aes(x = index, y = value, color = key)) +
+        geom_line(size = size, alpha = alpha) +
+        theme_tq(base_size = base_size) +
+        scale_color_tq() +
+        labs(title = glue("Split: {split$id}"),
+             subtitle = glue("{train_time_summary$start} to {test_time_summary$end}"),
+             x = "", y = "") +
+        theme(legend.position = "none")
+
+    if (expand_y_axis) {
+        sun_spots_time_summary <- sun_spots %>%
+            tk_index() %>%
+            tk_get_timeseries_summary()
+
+        gg <- gg +
+            scale_x_date(limits = c(sun_spots_time_summary$start,
+                                    sun_spots_time_summary$end))
+    }
+
+    gg
+}
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+rolling_origin_resamples$splits[[1]] %>%
+    plot_split(expand_y_axis = TRUE) +
+    theme(legend.position = "bottom")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+plot_sampling_plan <- function(sampling_tbl,
+                               expand_y_axis = TRUE, ncol = 3, alpha = 1, size = 1, base_size = 14,
+                               title = "Sampling Plan") {
+    # map plot_split() to sampling_tbl 
+    sampling_tbl %>%
+        mutate(gg_plots = map(splits,
+                              plot_split,
+                              expand_y_axis = expand_y_axis,
+                              alpha = alpha,
+                              base_size = base_size)) -> with_plots
+
+    # make combined plot with cowplot 
+    plot_list <- with_plots$gg_plots
+
+    p_temp <- plot_list[[1]] +
+        theme(legend.position = "bottom")
+
+    legend <- get_legend(p_temp)
+
+    p_body <- plot_grid(plotlist = plot_list,
+                        ncol = ncol)
+
+    p_title <- ggdraw() +
+        draw_label(title, size = 14, fontface = "bold",
+                   color = palette_light()[[1]])
+
+    plot_grid(p_title, p_body, legend,
+              ncol = 1, rel_heights = c(0.05, 1, 0.05))
+}
+#+END_SRC
+
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+# we could also set expand_y_axis = F to see all the plots zoomed in
+rolling_origin_resamples %>%
+    plot_sampling_plan(expand_y_axis = T, ncol = 3, alpha = 1, size = 1, base_size = 10,
+                       title = "Backtesting Strategy: Rolling Origin Sampling Plan")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+** The LSTM Model 
+
+To begin, we develop the model on a single sample from the backtesting strategy. We can then apply the model to all samples to investigate performance. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+example_split <- rolling_origin_resamples$splits[[6]]
+example_split_id <- rolling_origin_resamples$id[[6]]
+#+END_SRC
+
