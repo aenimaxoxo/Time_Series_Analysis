@@ -37,9 +37,6 @@ jena %>%
     geom_line()
 #+END_SRC
 
-#+RESULTS:
-[[file:plot.svg]]
-
 Here is the first 10 days of temperature data. The data is recorded every 10 minutes, giving 144 data points per day. 
 
 #+BEGIN_SRC R :file plot.svg :results graphics file
@@ -68,9 +65,349 @@ First we will convert the R data frame into a matrix of floating point values. T
 #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
 jena <- data.matrix(jena[, -1])
 
-# normalize the data 
 train_data <- jena[1:200000,]
+mean <- apply(train_data, 2, mean)
+std <- apply(train_data, 2, sd)
 
-train_data %<>%
-    scale()
+jena <- scale(jena, center = mean, scale = std)
+#+END_SRC
+
+** Define the Generator 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+generator <- function(data, lookback, delay, min_index, max_index,
+                      shuffle = FALSE, batch_size = 128, step = 6) {
+    if (is.null(max_index)) max_index <- nrow(data) - delay - 1
+    i <- min_index
+
+    function() {
+        if (shuffle) {
+            rows <- sample(c(min_index + lookback):max_index,
+                           size = batch_size)
+        } else {
+            if (i + batch_size >= max_index) i <<- min_index + lookback
+            rows <- c(i:min(i + batch_size - 1,
+                            max_index))
+            i <<- i + length(rows)
+        }
+
+        samples <- array(0, dim = c(length(rows),
+                                    lookback / step,
+                                    dim(data)[[-1]]))
+
+        targets <- array(0, dim = c(length(rows)))
+
+        for (j in 1:length(rows)) {
+            indices <- seq(rows[[j]] - lookback,
+                           rows[[j]] - 1,
+                           length.out = dim(samples)[[2]])
+
+            samples[j, , ] <- data[indices, ]
+            targets[[j]] <- data[rows[[j]] + delay, 2]
+        }
+        list(samples, targets)
+    }
+}
+#+END_SRC
+
+Now we can use the abstract generator function to instantiate 3 generators: training, validation, testing 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+lookback <- 1440
+step <- 6
+delay <- 144
+batch_size <- 128
+
+train_gen <- generator(
+    data = jena,
+    lookback = lookback,
+    delay = delay,
+    min_index = 1,
+    max_index = 200000,
+    shuffle = TRUE,
+    step = step,
+    batch_size = batch_size
+)
+
+validation_gen <- generator(
+    data = jena,
+    lookback = lookback,
+    delay = delay,
+    min_index = 200001,
+    max_index = 300000,
+    shuffle = TRUE,
+    step = step,
+    batch_size = batch_size
+)
+
+test_gen <- generator(
+    data = jena,
+    lookback = lookback,
+    delay = delay,
+    min_index = 300001,
+    max_index = NULL,
+    shuffle = TRUE,
+    step = step,
+    batch_size = batch_size
+)
+
+# how many steps to draw from val_gen in order to see the entire validation set 
+val_steps <- (300000 - 200001 - lookback) / batch_size 
+test_steps <- (nrow(jena) - 300001 - lookback) / batch_size
+#+END_SRC
+
+** A common sense, non-machine learning baseline 
+
+We could predict that the temperature 24 hours from now will be equal to the temperature right now.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(keras)
+
+eval_naive_method <- function() {
+    batch_maes <- c()
+
+    for (step in 1:val_steps) {
+        c(samples, targets) %<-% validation_gen()
+        preds <- samples[, dim(samples)[[2]], 2]
+        mae <- mean(abs(preds - targets))
+        batch_maes <- c(batch_maes, mae)
+    }
+
+    print(mean(batch_maes))
+}
+
+# this will be scaled, so multiply by the temp std dev 
+(eval_naive_method() * std[[2]])
+#+END_SRC
+
+** A Basic Machine Learning Approach 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+keras_model_sequential() %>%
+    layer_flatten(input_shape = c(lookback / step,
+                                  dim(data)[-1])) %>%
+    layer_dense(units = 32,
+                activation = "relu") %>%
+    layer_dense(units = 1) -> model 
+
+model %>%
+    compile(optimizer = optimizer_rmsprop(),
+            loss = "mae")
+
+model %>%
+    fit_generator(train_gen,
+                  steps_per_epoch = 500,
+                  epochs = 20,
+                  validation_data = validation_gen,
+                  validation_steps = val_steps) -> history
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+** A First Recurrent Baseline 
+
+The previous approach flattened the time series, which removed the notion of time from the input data. Instead, we should look at it as a sequence where causality and order matter. 
+
+We will start with a gated recurrent unit. This is the same principle as the lstm layer, but it is more streamlined and cheaper to run. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+keras_model_sequential() %>%
+    layer_gru(units = 32, input_shape = list(NULL, dim(data)[[-1]])) %>%
+    layer_dense(units = 1) -> model
+
+model %>% compile(optimizer = optimizer_rmsprop(),
+                  loss = "mae")
+
+model %>% fit_generator(train_gen,
+                        steps_per_epoch = 500,
+                        epochs = 20,
+                        validation_data = validation_gen,
+                        validation_steps = val_steps) -> history
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+** Using Recurrent Dropout to Fight Overfitting 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+keras_model_sequential() %>%
+    layer_gru(units = 32,
+              dropout = 0.2,
+              recurrent_dropout = 0.2,
+              input_shape = list(NULL, dim(data)[[-1]])) %>%
+    layer_dense(units = 1) %>%
+    compile(optimizer = optimizer_rmsprop(),
+            loss = "mae") %>%
+    fit_generator(train_gen,
+                  steps_per_epoch = 500,
+                  epochs = 40,
+                  validation_data = validation_gen,
+                  validation_steps = val_steps) -> history
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+** Stacking Recurrent Layers 
+
+To stack recurrent layers on top of each other in Keras, all intermediate layers should return their full sequence of outputs (a 3D tensor) rather than their output. This is done by specifying return_sequences = TRUE. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+keras_model_sequential() %>%
+    layer_gru(units = 32,
+              dropout = 0.1,
+              recurrent_dropout = 0.5,
+              return_sequences = TRUE,
+              input_shape = list(NULL, dim(data)[[-1]])) %>%
+    layer_gru(units = 64,
+              activation = "relu",
+              dropout = 0.1,
+              recurrent_dropout = 0.5) %>%
+    layer_dense(units = 1) %>%
+    compile(optimizer = optimizer_rmsprop(),
+            loss = "mae") %>%
+    fit_generator(train_gen,
+                  steps_per_epoch = 500,
+                  epochs = 40,
+                  validaton_data = validation_gen,
+                  validation_steps = val_steps) -> history
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+** Using Bidirectional Recurrent Neural Networks 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+keras_model_sequential() %>%
+    bidirectional(layer_gru(units = 32),
+                  input_shape = list(NULL, dim(data)[[-1]])) %>%
+    layer_dense(units = 1) %>%
+    compile(optimizer = optimizer_rmsprop(),
+            loss = "mae") %>%
+    fit_generator(train_gen,
+                  steps_per_epoch = 500,
+                  epochs = 40,
+                  validation_data = validation_gen,
+                  validation_steps = val_steps) -> history
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+* Forecasting Sunspots with Deep Learning 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(glue)
+library(forcats)
+library(lubridate)
+
+# time series 
+library(timetk)
+library(tidyquant)
+library(tibbletime)
+
+# visualization 
+library(cowplot)
+
+# preprocessing
+library(recipes)
+
+# sampling / accuracy 
+library(rsample)
+library(yardstick)
+
+# modeling
+library(keras)
+library(tfruns)
+#+END_SRC
+
+** Data
+
+Our dataset is a ts class (not tidy), so we need to convert it to a tidy data set first using the tk_tbl function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+sun_spots <- datasets::sunspot.month %>%
+    tk_tbl() %>%
+    mutate(index = as_date(index)) %>%
+    as_tbl_time(index = index)
+
+sun_spots %>%
+    head()
+#+END_SRC
+
+** Exploratory Data Analysis 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+sun_spots %>%
+    ggplot(aes(x = index, y = value)) +
+    geom_point(color = palette_light()[[1]],
+               alpha = 0.5) +
+    theme_tq() +
+    labs(title = "From 1749 to 2013 (Full Data)") -> p1
+
+sun_spots %>%
+    filter_time("start" ~ "1800") %>% 
+    ggplot(aes(x = index, y = value)) +
+    geom_line(color = palette_light()[[1]],
+              alpha = 0.5) +
+    geom_point(color = palette_light()[[1]]) +
+    geom_smooth(method = "loess", span = 0.2, se = FALSE) +
+    theme_tq() +
+    labs(title = "From 1749 to 1759 (Zoomed In To Show Cycle)",
+         caption = "datasets::sunspot.month") -> p2
+
+ggdraw() +
+    draw_label("Sunspots",
+               size = 18,
+               fontface = "bold",
+               color = palette_light()[[1]]) -> p_title
+
+plot_grid(p_title, p1, p2, ncol = 1, rel_heights = c(0.1, 1, 1))
+#+END_SRC
+
+** Backtesting: Time Series Cross Validation
+
+The backtesting strategy is this:
+
+- use 100 years for the training set
+- use 50 years for the validation set
+- select a skip span of about 22 years to approximately evenly distribute the samples into 6 sets that span the entire 265 year history of the sunspots data
+- set cumulative to FALSE to allow the origin to shift which ensures that models on more recent data are not given an unfair advantage 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+periods_train <- 12 * 100
+periods_test <- 12 * 50
+skip_span <- 12 * 22 - 1
+
+(rolling_origin_resamples <- rolling_origin(
+    sun_spots,
+    initial = periods_train,
+    assess = periods_test,
+    cumulative = FALSE,
+    skip = skip_span))
+#+END_SRC
+
+
+** Visualizing the Backtesting Strategy
+
+We can use two custom functions: 
+
+- plot_split() plots one of the resampling splits using ggplot
+- plot_sampling_plan() scales the plot_split() function to all of the samples using purrr and cowplot 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+plot_split <- function(split,
+                       expand_y_axis = TRUE, alpha = 1, size = 1, base_size = 14) {
+    
+}
 #+END_SRC

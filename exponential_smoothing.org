@@ -1,0 +1,106 @@
+* Exponential Smoothing 
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+#+NAME: round-tbl
+#+BEGIN_SRC emacs-lisp :var tbl="" fmt="%.1f"
+(mapcar (lambda (row)
+          (mapcar (lambda (cell)
+                    (if (numberp cell)
+                        (format fmt cell)
+                      cell))
+                  row))
+        tbl)
+#+end_src
+
+#+RESULTS: round-tbl
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(magrittr)
+library(fpp3)
+#+END_SRC
+
+Forecasts produced using exponential smoothing are weighted averages of past observations, with the weights decaying exponentially as the observations get older. In other words, the more recent the observation, the higher the associated weight.
+
+** Simple Exponential Smoothing 
+
+This method is suitable for forecasting data with no clear trend or seasonal pattern. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+algeria_economy <- tsibbledata::global_economy %>%
+    filter(Country == "Algeria")
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+algeria_economy %>%
+    autoplot(Exports) +
+    ylab("Exports (% of GDP)") + xlab("Year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+
+The naive method assigns all the weight to the most recent observation and the averaging method assigns equal weight to all of the observations. We often want something in between, which is the idea behind simple exponential smoothing. 
+
+Forecasts are calculated using weighted averages, where the weights decrease exponentially as observations come from further in the past -- the smallest weights are associated with the oldest observations. 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-10 21:13:30
+[[file:Exponential Smoothing/screenshot_2020-04-10_21-13-30.png]]
+
+where 0 leq alpha leq 1 is the smoothing parameter. 
+
+** Flat Forecasts 
+
+Simple exponential smoothing has flat forecasts -- all the forecasts take the same value, equal to the last level component. 
+Remember that these forecasts will only be suitable is the time series has no trend or seasonal component. 
+
+** Example
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# estimate parameters
+algeria_economy %>%
+    model(ETS(Exports ~ error("A") + trend("N") + season("N"), opt_crit = "mse")) -> fit 
+
+fit %>% forecast(h = 5) -> fc
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+fc %>%
+    autoplot(algeria_economy) +
+    geom_line(aes(y = .fitted,
+                  color = "Fitted"),
+                  data = augment(fit)) +
+    ylab("Exports (% of GDP)") + xlab("Year")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+The forecasts for the years 2018 - 2022 are plotted above. Also plotted are one-step ahead fitted values alongside the data over the period 1960 - 2017. 
+
+The large value of alpha on this example is reflected in the large adjustment that takes place in the estimated level l_t at each time. A smaller value of alpha would lead to smaller changes over time, and so the series of fitted values would be smoother. 
+
+** Methods with Trend 
+
+Holt extended simple exponential smoothing to allow the forecasting of data with a trend. This involves a forecast equation and two smoothing equations (one for level and one for trend). 
+
+
+#+DOWNLOADED: /tmp/screenshot.png @ 2020-04-10 21:26:16
+[[file:Exponential Smoothing/screenshot_2020-04-10_21-26-16.png]]
+
+** Example
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+aus_econ <- global_economy %>%
+    filter(Code == "AUS") %>%
+    mutate(Pop = (Population / 1e6))
+
+fit <- aus_econ %>%
+    model(AAN = ETS(Pop ~ error("A") + trend("A") + season("N")))
+
+fc <- fit %>% forecast(h = 10)
+#+END_SRC
