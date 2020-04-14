@@ -44,6 +44,43 @@ library(keras)
 library(tfruns)
 #+END_SRC
 
+#+RESULTS:
+| x                    |
+|----------------------|
+| tfruns               |
+| keras                |
+| yardstick            |
+| rsample              |
+| cowplot              |
+| tibbletime           |
+| tidyquant            |
+| quantmod             |
+| TTR                  |
+| PerformanceAnalytics |
+| xts                  |
+| zoo                  |
+| timetk               |
+| recipes              |
+| lubridate            |
+| glue                 |
+| magrittr             |
+| forcats              |
+| stringr              |
+| dplyr                |
+| purrr                |
+| readr                |
+| tidyr                |
+| tibble               |
+| ggplot2              |
+| tidyverse            |
+| stats                |
+| graphics             |
+| grDevices            |
+| utils                |
+| datasets             |
+| methods              |
+| base                 |
+
 ** Data
 
 Our dataset is a ts class (not tidy), so we need to convert it to a tidy data set first using the tk_tbl function. 
@@ -122,6 +159,9 @@ skip_span <- 12 * 22 - 1
     cumulative = FALSE,
     skip = skip_span))
 #+END_SRC
+
+#+RESULTS:
+: nil
 
 ** Visualizing the Backtesting Strategy
 
@@ -237,5 +277,162 @@ To begin, we develop the model on a single sample from the backtesting strategy.
 #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
 example_split <- rolling_origin_resamples$splits[[6]]
 example_split_id <- rolling_origin_resamples$id[[6]]
+#+END_SRC
+
+We can reuse the plot_split function to visualize this split. 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+example_split %>%
+    plot_split(expand_y_axis = FALSE, size = 0.5) +
+    theme(legend.position = "bottom") +
+    ggtitle(glue("Split: {example_split_id}"))
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+*** Data Setup
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+df_trn <- analysis(example_split)[1:800, , drop = FALSE]
+df_val <- analysis(example_split)[801:1200, , drop = FALSE]
+df_tst <- assessment(example_split)
+#+END_SRC
+
+First we combine the training and testing data sets into a single data set with a column that specifies where they came from. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+(df <- bind_rows(df_trn %>% add_column(key = "training"),
+                df_val %>% add_column(key = "validation"),
+                df_tst %>% add_column(key = "testing")) %>%
+    as_tbl_time(index = index))    
+#+END_SRC
+
+*** Preprocessing with recipes 
+
+The LSTM algorithm works better when the input data has been centered and scaled. We are also using the step_sqrt to reduce variance and remove outliers. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+rec_obj <- recipe(value ~ ., df) %>%
+    step_sqrt(value) %>%
+    step_center(value) %>%
+    step_scale(value) %>%
+    prep()
+
+(df_processed_tbl <- bake(rec_obj, df))
+#+END_SRC
+
+Now we should capture the original center and scale so we can invert the steps after modeling. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+center_history <- rec_obj$steps[[2]]$means["value"]
+scale_history <- rec_obj$steps[[3]]$sds["value"]
+
+c("center" = center_history,
+  "scale" = scale_history)
+#+END_SRC
+
+*** Reshaping the Data 
+
+The input for keras has to be a 3d array of size num_samples, num_timesteps, and num_features. 
+
+- num_samples is the number of observations in the set. This is fed in with batches
+- num_timesteps is the length of the hidden state we are talking about above
+- num_features is the number of predictors we are using 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# these will be superceded by flags below
+n_timesteps <- 12
+n_predictions <- n_timesteps
+batch_size <- 10
+
+# functions to reshape our data for the time series
+build_matrix <- function(tseries, overall_timesteps) {
+    t(sapply(1:(length(tseries) - overall_timesteps + 1),
+             function (x) tseries[x:(x + overall_timesteps - 1)]))
+}
+
+reshape_X_3d <- function(x) {
+    dim(x) <- c(dim(x)[1],
+                dim(x)[2],
+                1)
+    x
+}
+
+# extract values from data frame 
+extract_values <- function(data, key_in) {
+    data %>%
+        filter(key == key_in) %>%
+        select(value) %>%
+        pull()
+}
+
+train_vals <- df_processed_tbl %>% extract_values("training")
+valid_vals <- df_processed_tbl %>% extract_values("validation")
+test_vals <- df_processed_tbl %>% extract_values("testing")
+
+# build the windowed matrices 
+train_matrix <- build_matrix(train_vals, overall_timesteps = (n_timesteps + n_predictions))
+valid_matrix <- build_matrix(valid_vals, overall_timesteps = (n_timesteps + n_predictions))
+test_matrix <- build_matrix(test_vals, overall_timesteps = (n_timesteps + n_predictions))
+
+# separate matrices into training and testing parts 
+sep_matrices <- function(data, start, end) {
+    data %>% .[, start:end] %>% .[1:(nrow(.) %/% batch_size * batch_size), ] %>% reshape_X_3d()
+}
+
+x_train <- train_matrix %>% sep_matrices(1, n_timesteps)
+y_train <- train_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+
+x_valid <- valid_matrix %>% sep_matrices(1, n_timesteps)
+y_valid <- valid_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+
+x_test <- test_matrix %>% sep_matrices(1, n_timesteps)
+y_test <- test_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+#+END_SRC
+
+*** Building the LSTM model 
+
+Instead of hard coding the hyperparameters, we'll use tfruns to set up an environment where we could easily perform grid search 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+FLAGS <- flags(
+    # not a stateful lstm 
+    flag_boolean("stateful", FALSE),
+    # several layers of LSTM?
+    flag_boolean("stack_layers", FALSE),
+    # number of samples per batch
+    flag_integer("batch_size", 10),
+    # size of the hidden state (size of predictions for time series)
+    flag_integer("n_timesteps", 12),
+    # how many epochs to run for 
+    flag_integer("epochs", 50),
+    # fraction of units to drop for transformation of inputs
+    flag_numeric("dropout", 0.2),
+    # fraction of units to drop for the linear transformation of the recurrent state
+    flag_numeric("recurrent_dropout", 0.2),
+    # loss function
+    flag_string("loss", "logcosh"),
+    # optimizer 
+    flag_string("optimizer_type", "sgd"),
+    # size of the LSTM layer 
+    flag_integer("n_units", 128),
+    # learning rate 
+    flag_numeric("lr", 0.003),
+    # momentum 
+    flag_numeric("momentum", 0.9),
+    # early stopping callback
+    flag_integer("patience", 10)
+)
+
+# number of predictions made is equal to the size of the hidden state 
+n_predictions <- FLAGS$n_timesteps
+
+# number of features is the number of predictors 
+n_features <- 1
+
+# if we wanted to try different optimizers, we could do that here 
+optimizer <- switch(FLAGS$optimizer_type,
+                    sgd = optimizer_sgd())
 #+END_SRC
 
