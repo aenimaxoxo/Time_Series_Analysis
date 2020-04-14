@@ -12,7 +12,7 @@
                       cell))
                   row))
         tbl)
-#+end_src
+#+end_src 
 
 #+RESULTS: round-tbl
 
@@ -43,43 +43,6 @@ library(yardstick)
 library(keras)
 library(tfruns)
 #+END_SRC
-
-#+RESULTS:
-| x                    |
-|----------------------|
-| tfruns               |
-| keras                |
-| yardstick            |
-| rsample              |
-| cowplot              |
-| tibbletime           |
-| tidyquant            |
-| quantmod             |
-| TTR                  |
-| PerformanceAnalytics |
-| xts                  |
-| zoo                  |
-| timetk               |
-| recipes              |
-| lubridate            |
-| glue                 |
-| magrittr             |
-| forcats              |
-| stringr              |
-| dplyr                |
-| purrr                |
-| readr                |
-| tidyr                |
-| tibble               |
-| ggplot2              |
-| tidyverse            |
-| stats                |
-| graphics             |
-| grDevices            |
-| utils                |
-| datasets             |
-| methods              |
-| base                 |
 
 ** Data
 
@@ -308,6 +271,9 @@ First we combine the training and testing data sets into a single data set with 
     as_tbl_time(index = index))    
 #+END_SRC
 
+#+RESULTS:
+: nil
+
 *** Preprocessing with recipes 
 
 The LSTM algorithm works better when the input data has been centered and scaled. We are also using the step_sqrt to reduce variance and remove outliers. 
@@ -321,6 +287,9 @@ rec_obj <- recipe(value ~ ., df) %>%
 
 (df_processed_tbl <- bake(rec_obj, df))
 #+END_SRC
+
+#+RESULTS:
+: nil
 
 Now we should capture the original center and scale so we can invert the steps after modeling. 
 
@@ -382,13 +351,13 @@ sep_matrices <- function(data, start, end) {
 }
 
 x_train <- train_matrix %>% sep_matrices(1, n_timesteps)
-y_train <- train_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+y_train <- train_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps * 2)
 
 x_valid <- valid_matrix %>% sep_matrices(1, n_timesteps)
-y_valid <- valid_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+y_valid <- valid_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps * 2)
 
 x_test <- test_matrix %>% sep_matrices(1, n_timesteps)
-y_test <- test_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps + 2)
+y_test <- test_matrix %>% sep_matrices(n_timesteps + 1, n_timesteps * 2)
 #+END_SRC
 
 *** Building the LSTM model 
@@ -406,7 +375,7 @@ FLAGS <- flags(
     # size of the hidden state (size of predictions for time series)
     flag_integer("n_timesteps", 12),
     # how many epochs to run for 
-    flag_integer("epochs", 50),
+    flag_integer("epochs", 100),
     # fraction of units to drop for transformation of inputs
     flag_numeric("dropout", 0.2),
     # fraction of units to drop for the linear transformation of the recurrent state
@@ -433,6 +402,232 @@ n_features <- 1
 
 # if we wanted to try different optimizers, we could do that here 
 optimizer <- switch(FLAGS$optimizer_type,
-                    sgd = optimizer_sgd())
+                    sgd = optimizer_sgd(lr = FLAGS$lr,
+                                        momentum = FLAGS$momentum))
+
+# callbacks to be passed to the fit function
+callbacks <- list(callback_early_stopping(patience = FLAGS$patience))
 #+END_SRC
+
+**** Long Version w/ Checks 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+model <- keras_model_sequential()
+
+model %>%
+    layer_lstm(
+        units = FLAGS$n_units,
+        batch_input_shape = c(FLAGS$batch_size,
+                              FLAGS$n_timesteps,
+                              n_features),
+        dropout = FLAGS$dropout,
+        recurrent_dropout = FLAGS$recurrent_dropout,
+        return_sequences = TRUE,
+        stateful = FLAGS$stateful
+    )
+
+if (FLAGS$stack_layers) {
+    model %>%
+        layer_lstm(
+            units = FLAGS$n_units,
+            dropout = FLAGS$dropout,
+            recurrent_dropout = FLAGS$recurrent_dropout,
+            return_sequences = TRUE,
+            stateful = FLAGS$stateful)
+}
+
+model %>%
+    time_distributed(layer_dense(units = 1))
+
+model %>%
+    compile(
+        loss = FLAGS$loss,
+        optimizer = optimizer,
+        metrics = list("mean_squared_error")
+    )
+
+if (!FLAGS$stateful) {
+    model %>%
+        fit(
+            x = x_train,
+            y = y_train,
+            validation_data = list(x_valid, y_valid),
+            batch_size = FLAGS$batch_size,
+            epochs = FLAGS$epochs,
+            callbacks = callbacks
+        )
+} else {
+    for (i in 1:FLAGS$epochs) {
+        model %>%
+            fit(
+                x = x_train,
+                y = y_train,
+                validation_data = list(x_valid, y_valid),
+                batch_size = FLAGS$batch_size,
+                epochs = 1,
+                shuffle = FALSE
+            )        
+    }
+}
+
+if (FLAGS$stateful) model %>% reset_states()
+#+END_SRC
+
+**** Short Version w/o Checks
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+model <- keras_model_sequential()
+
+# only two layers, the LSTM and the time-distributed
+model %>%
+    layer_lstm(units = FLAGS$n_units,
+               batch_input_shape = c(FLAGS$batch_size,
+                                     FLAGS$n_timesteps,
+                                     n_features),
+               dropout = FLAGS$dropout,
+               recurrent_dropout = FLAGS$recurrent_dropout,
+               return_sequences = TRUE) %>%
+    time_distributed(layer_dense(units = 1))
+
+model %>%
+    compile(loss = FLAGS$loss,
+            optimizer = optimizer,
+            metrics = list("mean_squared_error"))
+
+model %>%
+    fit(x = x_train,
+        y = y_train,
+        validation_data = list(x_valid, y_valid),
+        batch_size = FLAGS$batch_size,
+        epochs = FLAGS$epochs,
+        callbacks = callbacks) -> history
+#+END_SRC
+
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+plot(history)
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Now we can check how well the model was able to capture the characteristics of the training set. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+pred_train <- model %>%
+    predict(x_train, batch_size = FLAGS$batch_size) %>%
+    .[, , 1]
+
+# retransform values to original scale
+pred_train <- (pred_train * scale_history + center_history)^2
+compare_train <- df %>% filter(key == "training")
+
+# build a dataframe that has actual and predicted values
+for (i in 1:nrow(pred_train)) {
+    varname <- paste0("pred_train", i)
+
+    compare_train %<>%
+        mutate(!!varname := c(rep(NA, FLAGS$n_timesteps + i - 1),
+                              pred_train[i, ],
+                              rep(NA, nrow(compare_train) - FLAGS$n_timesteps * 2 - i + 1)))
+}
+
+# compute the average RMSE over all the sequences of predictions 
+compare_train %>%
+    select(-index, -value, -key) %>%
+    map_dbl(., ~ rmse_vec(truth = compare_train$value,
+                          estimate = .x)) %>%
+    mean()
+#+END_SRC
+
+*** Visualize Predictions 
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+ggplot(compare_train, aes(x = index, y = value)) + geom_line() +
+    geom_line(aes(y = pred_train1), color = "cyan") +
+    geom_line(aes(y = pred_train50), color = "red") +
+    geom_line(aes(y = pred_train100), color = "green") +
+    geom_line(aes(y = pred_train150), color = "violet") +
+    geom_line(aes(y = pred_train200), color = "cyan") +
+    geom_line(aes(y = pred_train250), color = "red") +
+    geom_line(aes(y = pred_train300), color = "red") +
+    geom_line(aes(y = pred_train350), color = "green") +
+    geom_line(aes(y = pred_train400), color = "cyan") +
+    geom_line(aes(y = pred_train450), color = "red") +
+    geom_line(aes(y = pred_train500), color = "green") +
+    geom_line(aes(y = pred_train550), color = "violet") +
+    geom_line(aes(y = pred_train600), color = "cyan") +
+    geom_line(aes(y = pred_train650), color = "red") +
+    geom_line(aes(y = pred_train700), color = "red") +
+    geom_line(aes(y = pred_train750), color = "green") +
+    ggtitle("Predictions on the training set")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+
+Now we can check our average RMSE and fitted lines on the validation set:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+gen_pred_test <- function(model, test_set) {
+    pred_test <- model %>%
+        predict(test_set, batch_size = FLAGS$batch_size) %>%
+        .[, , 1]
+
+    # retransform values to original scale
+    pred_test <- (pred_test * scale_history + center_history)^2
+    compare_test <- df %>% filter(key == "testing")
+
+    # build a dataframe that has actual and predicted values
+    for (i in 1:nrow(pred_test)) {
+        varname <- paste0("pred_test", i)
+
+        compare_test %<>%
+            mutate(!!varname := c(rep(NA, FLAGS$n_timesteps + i - 1),
+                                  pred_test[i, ],
+                                  rep(NA, nrow(compare_test) - FLAGS$n_timesteps * 2 - i + 1)))
+    }
+
+    # compute the average RMSE over all the sequences of predictions 
+    compare_test %>%
+        select(-index, -value, -key) %>%
+        map_dbl(., ~ rmse_vec(truth = compare_test$value,
+                              estimate = .x)) %>%
+        mean() -> rmse_test
+
+    return(list(compare_test, rmse_test))
+}
+
+test_results <- gen_pred_test(model, x_test)
+
+# average RMSE 
+test_results[[2]]
+
+compare_test <- test_results[[1]]
+#+END_SRC
+
+#+BEGIN_SRC R :file plot.svg :results graphics file
+ggplot(compare_test, aes(x = index, y = value)) + geom_line() +
+  geom_line(aes(y = pred_test1), color = "cyan") +
+  geom_line(aes(y = pred_test50), color = "red") +
+  geom_line(aes(y = pred_test100), color = "green") +
+  geom_line(aes(y = pred_test150), color = "violet") +
+  geom_line(aes(y = pred_test200), color = "cyan") +
+  geom_line(aes(y = pred_test250), color = "red") +
+  geom_line(aes(y = pred_test300), color = "green") +
+  geom_line(aes(y = pred_test350), color = "cyan") +
+  geom_line(aes(y = pred_test400), color = "red") +
+  geom_line(aes(y = pred_test450), color = "green") +  
+  geom_line(aes(y = pred_test500), color = "cyan") +
+  geom_line(aes(y = pred_test550), color = "violet") +
+  ggtitle("Predictions on test set")
+#+END_SRC
+
+#+RESULTS:
+[[file:plot.svg]]
+
+Now that we've defined and run our model on a manually chosen example split, we can now revert to our overall re-sampling frame. 
+
+** Backtesting the model on all splits 
 
