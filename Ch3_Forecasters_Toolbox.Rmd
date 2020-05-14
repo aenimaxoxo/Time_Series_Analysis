@@ -9,7 +9,10 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(fpp2)
+library(fpp3)
+
+
+
 ```
 
 # Chapter 3 | The Forecaster's Toolbox

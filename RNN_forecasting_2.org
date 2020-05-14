@@ -791,7 +791,7 @@ obtain_preds <- function(split) {
 
     # again on the test set
     pred_test <- model %>%
-        predict(test_set, batch_size = FLAGS$batch_size) %>%
+        predict(x_test, batch_size = FLAGS$batch_size) %>%
         .[, , 1]
 
     # retransform values to original scale
